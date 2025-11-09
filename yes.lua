@@ -204,8 +204,14 @@ local function BlatantFishingLoop()
     while isBlatantActive do
         local castSuccess = pcall(function()
             if module_upvr and module_upvr.RequestChargeFishingRod then
+                -- **PERBAIKAN UTAMA**: Set confirmFishingInput untuk bypass konfirmasi user
+                _G.confirmFishingInput = function() return true end
+                
                 -- **INI KUNCI AUTO-CAST Cepat**: Parameter 'true' (arg3)
                 module_upvr:RequestChargeFishingRod(nil, nil, true)
+                
+                -- Reset setelah selesai
+                _G.confirmFishingInput = nil
                 return true
             end
             return false
@@ -213,7 +219,7 @@ local function BlatantFishingLoop()
         
         if not castSuccess then
             print("❌ Failed to cast fishing rod or Rod not fully equipped yet. Retrying...")
-            task.wait(2) 
+            task.wait(0.5) -- Delay lebih pendek untuk retry
         end
 
         -- **PERBAIKAN DELAY**: Mengurangi delay loop agar segera melempar lagi
@@ -313,7 +319,10 @@ local function ManualBlatantFish()
     
     pcall(function()
         if module_upvr and module_upvr.RequestChargeFishingRod then
+            -- Set confirmFishingInput untuk bypass konfirmasi
+            _G.confirmFishingInput = function() return true end
             module_upvr:RequestChargeFishingRod(nil, nil, true)
+            _G.confirmFishingInput = nil
             Notify({Title = "⚡ Manual Cast", Content = "Casting fishing rod...", Duration = 2})
         end
     end)
