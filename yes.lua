@@ -84,6 +84,7 @@ local BLATANT_MODE_TROVE = nil
 local originalFishingRodStarted = nil
 local originalSendFishingRequestToServer = nil
 local originalRequestChargeFishingRod = nil
+local originalFishingStopped = nil
 local FISHING_COMPLETED_REMOTE = nil
 local RequestFishingMinigameStarted_Net = nil
 local module_upvr = nil
@@ -179,6 +180,7 @@ local function InitializeBlatantFishing()
             originalFishingRodStarted = module_upvr.FishingRodStarted
             originalSendFishingRequestToServer = module_upvr.SendFishingRequestToServer
             originalRequestChargeFishingRod = module_upvr.RequestChargeFishingRod
+            originalFishingStopped = module_upvr.FishingStopped
         end
         
         -- Initialize trove
@@ -228,6 +230,47 @@ local function HookFishingRodStarted(rodData, minigameData)
         -- Jika tidak aktif, jalankan fungsi asli
         if originalFishingRodStarted then
             originalFishingRodStarted(rodData, minigameData)
+        end
+    end
+end
+
+-- =============================================================================
+-- PERBAIKAN UTAMA: Hook FishingStopped untuk langsung casting lagi
+-- =============================================================================
+
+local function HookFishingStopped()
+    if isBlatantActive then
+        print("⚡ Blatant Mode: Fishing completed, preparing next cast...")
+        
+        -- Cleanup state variables
+        var34_upvw = false
+        var37_upvw = nil
+        var36_upvw = nil
+        
+        -- Reset cooldown time untuk casting berikutnya
+        var38_upvw = 0
+        
+        -- Small delay sebelum casting lagi
+        task.wait(0.1)
+        
+        -- Langsung casting lagi tanpa melalui charging
+        if module_upvr and module_upvr.RequestChargeFishingRod then
+            task.spawn(function()
+                -- Tunggu sebentar untuk memastikan cleanup selesai
+                task.wait(0.2)
+                
+                -- Cast fishing rod lagi
+                local mousePos = Vector2.new(0, 0)
+                local skipCharge = true
+                
+                print("⚡ Blatant Mode: Auto recasting...")
+                module_upvr:RequestChargeFishingRod(mousePos, nil, skipCharge)
+            end)
+        end
+    else
+        -- Normal behavior
+        if originalFishingStopped then
+            originalFishingStopped()
         end
     end
 end
@@ -351,7 +394,7 @@ local function BlatantCastFishingRod()
 end
 
 -- =============================================================================
--- PERBAIKAN UTAMA: BlatantFishingLoop yang menggunakan multiple approaches
+-- PERBAIKAN UTAMA: BlatantFishingLoop yang menggunakan continuous casting
 -- =============================================================================
 
 local function BlatantFishingLoop()
@@ -360,10 +403,25 @@ local function BlatantFishingLoop()
         
         if not castSuccess then
             print("🔄 Retrying cast...")
+            task.wait(0.5) -- Delay lebih lama jika gagal
+        else
+            -- Tunggu sampai fishing selesai sebelum casting lagi
+            -- HookFishingStopped akan menangani casting berikutnya
+            local waitStart = tick()
+            while isBlatantActive and (tick() - waitStart) < 10 do -- Max 10 detik wait
+                task.wait(0.1)
+                -- Jika fishing sudah selesai (state direset), break dan casting lagi
+                if not var36_upvw and not var37_upvw then
+                    break
+                end
+            end
+            
+            -- Jika masih aktif, casting lagi
+            if isBlatantActive then
+                print("⚡ Blatant Mode: Preparing next cast...")
+                task.wait(blatantFishingDelay)
+            end
         end
-
-        -- Delay sebelum cast berikutnya
-        task.wait(blatantFishingDelay)
     end
 end
 
@@ -449,6 +507,11 @@ local function ToggleBlatantMode(enable)
                 module_upvr.SendFishingRequestToServer = HookSendFishingRequestToServer
             end
             
+            -- HOOK BARU: FishingStopped untuk auto recast
+            if module_upvr.FishingStopped and module_upvr.FishingStopped ~= HookFishingStopped then
+                module_upvr.FishingStopped = HookFishingStopped
+            end
+            
             -- Tambahkan fungsi pembersihan ke Trove
             if BLATANT_MODE_TROVE then
                 BLATANT_MODE_TROVE:Add(function() 
@@ -462,6 +525,9 @@ local function ToggleBlatantMode(enable)
                         if originalSendFishingRequestToServer then
                             module_upvr.SendFishingRequestToServer = originalSendFishingRequestToServer
                         end
+                        if originalFishingStopped then
+                            module_upvr.FishingStopped = originalFishingStopped
+                        end
                     end
                 end)
             end
@@ -472,7 +538,7 @@ local function ToggleBlatantMode(enable)
             BLATANT_MODE_TROVE:Add(task.spawn(BlatantFishingLoop))
         end
         
-        Notify({Title = "⚡ Blatant Fishing", Content = "Fast fishing mode activated - Instant casting and bypassing minigame", Duration = 3})
+        Notify({Title = "⚡ Blatant Fishing", Content = "Fast fishing mode activated - Continuous casting without charging", Duration = 3})
         
     else
         isBlatantActive = false
@@ -493,6 +559,9 @@ local function ToggleBlatantMode(enable)
             end
             if originalSendFishingRequestToServer then
                 module_upvr.SendFishingRequestToServer = originalSendFishingRequestToServer
+            end
+            if originalFishingStopped then
+                module_upvr.FishingStopped = originalFishingStopped
             end
         end
         
@@ -2029,7 +2098,7 @@ SettingsTab:Button({
 -- Initial Notification
 Notify({
     Title = "Anggazyy Hub Ready", 
-    Content = "WindUI System initialized successfully with UPDATED Blatant Fishing",
+    Content = "WindUI System initialized successfully with UPDATED Continuous Blatant Fishing",
     Duration = 4
 })
 
