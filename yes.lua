@@ -94,7 +94,7 @@ local Constants_upvr = nil
 
 -- Blatant Fishing Configuration
 local blatantReelDelay = 0.5  -- Default delay reel
-local blatantFishingDelay = 0.0015  -- Default delay fishing
+local blatantFishingDelay = 0.5  -- Default delay antara fishing sessions
 
 -- UI Configuration
 local COLOR_ENABLED = Color3.fromRGB(76, 175, 80)  -- Green
@@ -139,7 +139,7 @@ local function Notify(opts)
 end
 
 -- =============================================================================
--- BLATANT FISHING SYSTEM - UPDATED WORKING VERSION
+-- BLATANT FISHING SYSTEM - FIXED CONTINUOUS CASTING
 -- =============================================================================
 
 local function InitializeBlatantFishing()
@@ -213,7 +213,7 @@ local function AutoFishComplete(rodData, minigameData)
     
     print("⚡ Blatant Mode: Minigame Bypassed. Fish Retrieved.")
 
-    -- Delay Fishing Complete sebelum loop Fast Fishing kembali melempar
+    -- Delay sebelum casting lagi
     if blatantFishingDelay > 0 then
         task.wait(blatantFishingDelay)
     end
@@ -251,20 +251,29 @@ local function HookFishingStopped()
         var38_upvw = 0
         
         -- Small delay sebelum casting lagi
-        task.wait(0.1)
+        task.wait(0.3)
         
         -- Langsung casting lagi tanpa melalui charging
         if module_upvr and module_upvr.RequestChargeFishingRod then
             task.spawn(function()
-                -- Tunggu sebentar untuk memastikan cleanup selesai
-                task.wait(0.2)
-                
                 -- Cast fishing rod lagi
-                local mousePos = Vector2.new(0, 0)
+                local UserInputService = game:GetService("UserInputService")
+                local CurrentCamera = workspace.CurrentCamera
+                local mousePos
+                
+                if UserInputService.MouseEnabled then
+                    mousePos = UserInputService:GetMouseLocation()
+                else
+                    local viewportSize = CurrentCamera.ViewportSize
+                    mousePos = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+                end
+                
                 local skipCharge = true
                 
                 print("⚡ Blatant Mode: Auto recasting...")
+                _G.confirmFishingInput = function() return true end
                 module_upvr:RequestChargeFishingRod(mousePos, nil, skipCharge)
+                _G.confirmFishingInput = nil
             end)
         end
     else
@@ -288,8 +297,8 @@ local function GetSafeMousePosition()
     end
 end
 
--- Approach 1: Menggunakan RequestChargeFishingRod dengan bypass
-local function BlatantCastMethod1()
+-- Main blatant casting function
+local function BlatantCastFishingRod()
     if not module_upvr or not module_upvr.RequestChargeFishingRod then
         return false
     end
@@ -308,89 +317,12 @@ local function BlatantCastMethod1()
         return castResult
     end)
     
-    return success
-end
-
--- Approach 2: Direct server call
-local function BlatantCastMethod2()
-    if not RequestFishingMinigameStarted_Net then
-        return false
+    if not success then
+        print("❌ Blatant Cast Error:", result)
+        _G.confirmFishingInput = nil
     end
-    
-    local success, result = pcall(function()
-        -- Get character position
-        local character = LocalPlayer.Character
-        if not character or not character:FindFirstChild("HumanoidRootPart") then
-            return false, "No character found"
-        end
-        
-        local throwPosition = character.HumanoidRootPart.Position + Vector3.new(0, -1, 10)
-        local power = 0.5
-        local castTime = workspace:GetServerTimeNow()
-        
-        local serverSuccess, serverResult = RequestFishingMinigameStarted_Net:InvokeServer(
-            throwPosition.Y,
-            power, 
-            castTime
-        )
-        
-        if serverSuccess then
-            -- Trigger FishingRodStarted manually
-            if module_upvr and module_upvr.FishingRodStarted then
-                module_upvr:FishingRodStarted(serverResult)
-            end
-            return true
-        else
-            return false, tostring(serverResult)
-        end
-    end)
     
     return success
-end
-
--- Approach 3: Menggunakan SendFishingRequestToServer langsung
-local function BlatantCastMethod3()
-    if not module_upvr or not module_upvr.SendFishingRequestToServer then
-        return false
-    end
-    
-    local success, result = pcall(function()
-        local mousePos = GetSafeMousePosition()
-        local power = 0.5
-        local skipCharge = true
-        
-        local sendSuccess, sendResult = module_upvr:SendFishingRequestToServer(mousePos, power, skipCharge)
-        return sendSuccess
-    end)
-    
-    return success
-end
-
--- Main blatant casting function yang mencoba semua method
-local function BlatantCastFishingRod()
-    -- Coba method 1: RequestChargeFishingRod dengan bypass
-    local success = BlatantCastMethod1()
-    if success then
-        print("✅ Blatant Cast: Method 1 successful")
-        return true
-    end
-    
-    -- Coba method 2: Direct server call
-    success = BlatantCastMethod2()
-    if success then
-        print("✅ Blatant Cast: Method 2 successful")
-        return true
-    end
-    
-    -- Coba method 3: SendFishingRequestToServer langsung
-    success = BlatantCastMethod3()
-    if success then
-        print("✅ Blatant Cast: Method 3 successful")
-        return true
-    end
-    
-    print("❌ Blatant Cast: All methods failed")
-    return false
 end
 
 -- =============================================================================
@@ -398,31 +330,53 @@ end
 -- =============================================================================
 
 local function BlatantFishingLoop()
+    local castCount = 0
+    
     while isBlatantActive do
+        castCount = castCount + 1
+        print("🎣 Blatant Fishing: Cast attempt #" .. castCount)
+        
         local castSuccess = BlatantCastFishingRod()
         
-        if not castSuccess then
-            print("🔄 Retrying cast...")
-            task.wait(0.5) -- Delay lebih lama jika gagal
-        else
-            -- Tunggu sampai fishing selesai sebelum casting lagi
-            -- HookFishingStopped akan menangani casting berikutnya
+        if castSuccess then
+            print("✅ Blatant Cast #" .. castCount .. " successful")
+            
+            -- Tunggu sampai fishing selesai (dengan timeout)
             local waitStart = tick()
-            while isBlatantActive and (tick() - waitStart) < 10 do -- Max 10 detik wait
-                task.wait(0.1)
-                -- Jika fishing sudah selesai (state direset), break dan casting lagi
+            local maxWaitTime = 15 -- Maximum 15 detik menunggu
+            
+            while isBlatantActive and (tick() - waitStart) < maxWaitTime do
+                task.wait(0.5)
+                
+                -- Cek jika fishing sudah selesai (state direset)
                 if not var36_upvw and not var37_upvw then
+                    print("⚡ Fishing completed, preparing next cast...")
                     break
+                end
+                
+                -- Jika masih dalam minigame, tunggu
+                if var36_upvw then
+                    -- print("⏳ Waiting for minigame to complete...")
                 end
             end
             
-            -- Jika masih aktif, casting lagi
-            if isBlatantActive then
-                print("⚡ Blatant Mode: Preparing next cast...")
-                task.wait(blatantFishingDelay)
+            -- Jika timeout, lanjut casting lagi
+            if (tick() - waitStart) >= maxWaitTime then
+                print("⏰ Timeout reached, forcing next cast...")
             end
+            
+        else
+            print("❌ Blatant Cast #" .. castCount .. " failed, retrying...")
+            task.wait(1) -- Delay lebih lama jika gagal
+        end
+        
+        -- Delay pendek sebelum cast berikutnya
+        if isBlatantActive then
+            task.wait(blatantFishingDelay)
         end
     end
+    
+    print("🛑 Blatant Fishing Loop Stopped")
 end
 
 -- Hook untuk RequestChargeFishingRod
@@ -2098,7 +2052,7 @@ SettingsTab:Button({
 -- Initial Notification
 Notify({
     Title = "Anggazyy Hub Ready", 
-    Content = "WindUI System initialized successfully with UPDATED Continuous Blatant Fishing",
+    Content = "WindUI System initialized successfully with UPDATED Blatant Fishing",
     Duration = 4
 })
 
