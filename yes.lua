@@ -56,6 +56,7 @@ local module_upvr = nil
 local Net_upvr = nil
 local Trove_upvr = nil
 local Constants_upvr = nil
+local ReplionData = nil
 
 -- Blatant Fishing Configuration
 local blatantReelDelay = 0.5  -- Default delay reel
@@ -107,6 +108,70 @@ end
 -- BLATANT FISHING SYSTEM - FIXED VERSION
 -- =============================================================================
 
+-- Fungsi untuk mendapatkan data player yang benar
+local function GetPlayerData()
+    if ReplionData then
+        return ReplionData
+    end
+    
+    local success, result = pcall(function()
+        local Replion = require(ReplicatedStorage.Packages.Replion)
+        ReplionData = Replion.Client:WaitReplion("Data")
+        return ReplionData
+    end)
+    
+    if success then
+        return ReplionData
+    end
+    
+    return nil
+end
+
+-- Fungsi untuk cek apakah fishing rod equipped
+local function IsFishingRodEquipped()
+    local data = GetPlayerData()
+    if not data then return false end
+    
+    local equippedId = data:Get("EquippedId")
+    if not equippedId or string.len(equippedId) == 0 then
+        return false
+    end
+    
+    -- Cek apakah item yang equipped adalah fishing rod
+    local success, result = pcall(function()
+        local ItemUtility = require(ReplicatedStorage.Shared.ItemUtility)
+        local itemData = ItemUtility:GetItemData(equippedId)
+        if itemData and itemData.Data and itemData.Data.Type == "Fishing Rods" then
+            return true
+        end
+        return false
+    end)
+    
+    return success and result
+end
+
+-- Fungsi untuk mendapatkan item data dari equipped item
+local function GetEquippedFishingRod()
+    local data = GetPlayerData()
+    if not data then return nil end
+    
+    local equippedId = data:Get("EquippedId")
+    if not equippedId or string.len(equippedId) == 0 then
+        return nil
+    end
+    
+    local success, result = pcall(function()
+        local ItemUtility = require(ReplicatedStorage.Shared.ItemUtility)
+        return ItemUtility:GetItemData(equippedId)
+    end)
+    
+    if success then
+        return result
+    end
+    
+    return nil
+end
+
 local function InitializeBlatantFishing()
     local success, result = pcall(function()
         -- Load required modules for Blatant Fishing
@@ -114,14 +179,27 @@ local function InitializeBlatantFishing()
         Trove_upvr = require(ReplicatedStorage.Packages.Trove)
         Constants_upvr = require(ReplicatedStorage.Shared.Constants)
         
+        -- Initialize player data
+        GetPlayerData()
+        
         -- Get fishing module - Mencari modul fishing yang tepat
         for _, module in pairs(ReplicatedStorage:GetDescendants()) do
-            if module:IsA("ModuleScript") and (string.find(module.Name:lower(), "fishing") or string.find(module.Name:lower(), "controller")) then
-                local modSuccess, modResult = pcall(function()
-                    return require(module)
-                end)
-                if modSuccess and type(modResult) == "table" then
-                    if modResult.RequestChargeFishingRod then
+            if module:IsA("ModuleScript") then
+                if string.find(module.Name:lower(), "fishing") or 
+                   string.find(module.Name:lower(), "controller") or
+                   module.Name == "FishingController" then
+                   
+                    local modSuccess, modResult = pcall(function()
+                        local required = require(module)
+                        if type(required) == "table" then
+                            if required.RequestChargeFishingRod or required.FishingRodStarted then
+                                return required
+                            end
+                        end
+                        return nil
+                    end)
+                    
+                    if modSuccess and modResult then
                         module_upvr = modResult
                         break
                     end
@@ -193,58 +271,63 @@ local function HookFishingRodStarted(rodData, minigameData)
     end
 end
 
+-- Fungsi untuk melakukan casting fishing rod
+local function PerformFishingCast()
+    if not IsFishingRodEquipped() then
+        return false, "No fishing rod equipped!"
+    end
+    
+    if module_upvr and module_upvr.OnCooldown and module_upvr:OnCooldown() then
+        return false, "On cooldown"
+    end
+    
+    local castSuccess, castResult = pcall(function()
+        if module_upvr and module_upvr.RequestChargeFishingRod then
+            -- Gunakan parameter true untuk bypass charge visual/input
+            module_upvr:RequestChargeFishingRod(nil, nil, true)
+            return true
+        end
+        return false
+    end)
+    
+    return castSuccess, castResult
+end
+
 -- Fungsi loop utama untuk Fast Fishing: Melempar kail berulang kali
 local function BlatantFishingLoop()
+    local castAttempts = 0
+    local maxAttemptsWithoutRod = 5
+    
     while isBlatantActive do
-        -- Periksa apakah fishing rod equipped
-        local success, hasRod = pcall(function()
-            local Replion = require(ReplicatedStorage.Packages.Replion)
-            local Data = Replion.Client:WaitReplion("Data")
-            if Data then
-                local equippedId = Data:Get("EquippedId")
-                if equippedId and string.len(equippedId) > 0 then
-                    local ItemUtility = require(ReplicatedStorage.Shared.ItemUtility)
-                    local itemData = ItemUtility.GetItemDataFromItemType("Fishing Rods", equippedId)
-                    return itemData ~= nil
-                end
+        -- Cek apakah fishing rod equipped
+        if not IsFishingRodEquipped() then
+            castAttempts = castAttempts + 1
+            if castAttempts >= maxAttemptsWithoutRod then
+                Notify({
+                    Title = "⚡ Blatant Fishing", 
+                    Content = "Please equip a fishing rod to continue!",
+                    Duration = 3
+                })
+                castAttempts = 0
             end
-            return false
-        end)
-        
-        if not success or not hasRod then
-            Notify({Title = "Blatant Fishing", Content = "No fishing rod equipped!", Duration = 3})
             task.wait(2)
             continue
         end
-
-        -- Periksa Cooldown
-        if module_upvr and module_upvr.OnCooldown and module_upvr:OnCooldown() then
-            -- Tunggu sampai cooldown selesai
-            if Constants_upvr and Constants_upvr.FishingCooldownTime then
-                task.wait(Constants_upvr.FishingCooldownTime + 0.1)
-            else
-                task.wait(3)
-            end
-            continue
-        end
-
-        -- Melempar Kail (Casting) dengan parameter true untuk bypass charge
-        local castSuccess = pcall(function()
-            if module_upvr and module_upvr.RequestChargeFishingRod then
-                -- Gunakan parameter true untuk bypass charge visual/input
-                module_upvr:RequestChargeFishingRod(nil, nil, true)
-                return true
-            end
-            return false
-        end)
         
-        if not castSuccess then
-            print("❌ Failed to cast fishing rod")
-            task.wait(1)
-            continue
+        castAttempts = 0  -- Reset attempts counter
+        
+        -- Lakukan casting
+        local castSuccess, castResult = PerformFishingCast()
+        
+        if castSuccess then
+            print("🎣 Blatant Mode: Casting fishing rod...")
+        else
+            if castResult ~= "On cooldown" then
+                print("❌ Blatant Mode: Failed to cast - " .. tostring(castResult))
+            end
         end
-
-        -- Tunggu proses lempar dan tangkap selesai sebelum lemparan berikutnya.
+        
+        -- Tunggu sebelum casting berikutnya
         task.wait(3.5)
     end
 end
@@ -289,6 +372,16 @@ local function ToggleBlatantMode(enable)
             end
         end
         
+        -- Cek apakah fishing rod equipped
+        if not IsFishingRodEquipped() then
+            Notify({
+                Title = "⚡ Blatant Fishing", 
+                Content = "Please equip a fishing rod first!",
+                Duration = 4
+            })
+            return false
+        end
+        
         isBlatantActive = true
         print("✅ Blantant Mode (Fast Fishing): ENABLED.")
         
@@ -310,7 +403,11 @@ local function ToggleBlatantMode(enable)
             BLATANT_MODE_TROVE:Add(task.spawn(BlatantFishingLoop))
         end
         
-        Notify({Title = "⚡ Blatant Fishing", Content = "Fast fishing mode activated - Auto casting and bypassing minigame", Duration = 3})
+        Notify({
+            Title = "⚡ Blatant Fishing", 
+            Content = "Fast fishing mode activated - Auto casting and bypassing minigame",
+            Duration = 3
+        })
         
     else
         isBlatantActive = false
@@ -326,7 +423,11 @@ local function ToggleBlatantMode(enable)
             module_upvr.FishingRodStarted = originalFishingRodStarted
         end
         
-        Notify({Title = "Blatant Fishing", Content = "Fast fishing mode deactivated", Duration = 3})
+        Notify({
+            Title = "Blatant Fishing", 
+            Content = "Fast fishing mode deactivated",
+            Duration = 3
+        })
     end
     
     return true
@@ -334,17 +435,52 @@ end
 
 -- Manual fishing function untuk testing
 local function ManualBlatantFish()
-    if not isBlatantActive then
-        Notify({Title = "Blatant Fishing", Content = "Please enable Blatant Mode first", Duration = 3})
+    if not IsFishingRodEquipped() then
+        Notify({
+            Title = "⚡ Manual Cast", 
+            Content = "Please equip a fishing rod first!",
+            Duration = 3
+        })
         return
     end
     
-    pcall(function()
-        if module_upvr and module_upvr.RequestChargeFishingRod then
-            module_upvr:RequestChargeFishingRod(nil, nil, true)
-            Notify({Title = "⚡ Manual Cast", Content = "Casting fishing rod...", Duration = 2})
-        end
-    end)
+    local castSuccess, castResult = PerformFishingCast()
+    
+    if castSuccess then
+        Notify({
+            Title = "⚡ Manual Cast", 
+            Content = "Casting fishing rod...",
+            Duration = 2
+        })
+    else
+        Notify({
+            Title = "❌ Manual Cast", 
+            Content = "Failed to cast: " .. tostring(castResult),
+            Duration = 3
+        })
+    end
+end
+
+-- Function untuk cek status fishing rod
+local function CheckFishingRodStatus()
+    local hasRod = IsFishingRodEquipped()
+    local rodData = GetEquippedFishingRod()
+    
+    if hasRod and rodData then
+        Notify({
+            Title = "🎣 Fishing Rod Status", 
+            Content = string.format("Equipped: %s", rodData.Data.Name),
+            Duration = 3
+        })
+        return true
+    else
+        Notify({
+            Title = "🎣 Fishing Rod Status", 
+            Content = "No fishing rod equipped!",
+            Duration = 3
+        })
+        return false
+    end
 end
 
 -- Network Communication
@@ -1391,6 +1527,12 @@ AutoTab:Button({
     Title = "Manual Cast",
     Icon = "fishing-rod",
     Callback = ManualBlatantFish
+})
+
+AutoTab:Button({
+    Title = "Check Rod Status",
+    Icon = "info",
+    Callback = CheckFishingRodStatus
 })
 
 AutoTab:Space()
