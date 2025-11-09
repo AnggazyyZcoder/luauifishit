@@ -59,7 +59,7 @@ local Constants_upvr = nil
 
 -- Blatant Fishing Configuration
 local blatantReelDelay = 0.5  -- Default delay reel
-local blatantFishingDelay = 0.87  -- Default delay fishing
+local blatantFishingDelay = 0.0015  -- Default delay fishing (1.5ms untuk Fast Reel Loop)
 
 -- UI Configuration
 local COLOR_ENABLED = Color3.fromRGB(76, 175, 80)  -- Green
@@ -121,7 +121,7 @@ local function InitializeBlatantFishing()
                     return require(module)
                 end)
                 if modSuccess and type(modResult) == "table" then
-                    if modResult.RequestChargeFishingRod then
+                    if modResult.RequestChargeFishingRod and modResult.FishingRodStarted then
                         module_upvr = modResult
                         break
                     end
@@ -131,7 +131,10 @@ local function InitializeBlatantFishing()
         
         -- Jika tidak ditemukan, coba cari di Controllers
         if not module_upvr then
-            module_upvr = require(ReplicatedStorage.Controllers.FishingController)
+            local FishingController = ReplicatedStorage.Controllers:FindFirstChild("FishingController")
+            if FishingController then
+                module_upvr = require(FishingController)
+            end
         end
         
         -- Get remote event
@@ -193,28 +196,19 @@ local function HookFishingRodStarted(rodData, minigameData)
     end
 end
 
--- Fungsi loop utama untuk Fast Fishing: Melempar kail berulang kali
+-- =============================================================================
+-- PERBAIKAN UTAMA: BlatantFishingLoop yang sudah diperbaiki
+-- =============================================================================
+
 local function BlatantFishingLoop()
     while isBlatantActive do
-        -- [FIX START] Menghapus cek rod manual yang bermasalah. 
-        -- Kita sekarang mengandalkan validasi internal RequestChargeFishingRod.
         
-
-        -- Periksa Cooldown
-        if module_upvr and module_upvr.OnCooldown and module_upvr:OnCooldown() then
-            -- Tunggu sampai cooldown selesai
-            if Constants_upvr and Constants_upvr.FishingCooldownTime then
-                task.wait(Constants_upvr.FishingCooldownTime + 0.1)
-            else
-                task.wait(3)
-            end
-            continue
-        end
-
-        -- Melempar Kail (Casting) dengan parameter true untuk bypass charge
+        -- [[ PERBAIKAN: COOLDOWN DIABAIKAN (DIHAPUS/DIKOMENTARI) ]]
+        -- Ini memastikan loop tidak stuck menunggu cooldown, sehingga fast cast selalu dicoba.
+        
         local castSuccess = pcall(function()
             if module_upvr and module_upvr.RequestChargeFishingRod then
-                -- Gunakan parameter true untuk bypass charge visual/input
+                -- **INI KUNCI AUTO-CAST Cepat**: Parameter 'true' (arg3)
                 module_upvr:RequestChargeFishingRod(nil, nil, true)
                 return true
             end
@@ -223,13 +217,12 @@ local function BlatantFishingLoop()
         
         if not castSuccess then
             print("❌ Failed to cast fishing rod or Rod not fully equipped yet. Retrying...")
-            task.wait(2) -- Jeda sebentar sebelum coba lagi
+            task.wait(2) 
             continue
         end
-        -- [FIX END]
 
-        -- Tunggu proses lempar dan tangkap selesai sebelum lemparan berikutnya.
-        task.wait(3.5)
+        -- **PERBAIKAN DELAY**: Mengurangi delay loop agar segera melempar lagi
+        task.wait(blatantFishingDelay) -- Diubah menjadi 1.5 milidetik (0.0015)
     end
 end
 
@@ -239,7 +232,7 @@ local function SetBlatantReelDelay(delay)
         blatantReelDelay = delay
         Notify({
             Title = "Blatant Fishing", 
-            Content = string.format("Reel delay set to %.2f seconds", delay),
+            Content = string.format("Reel delay set to %.4f seconds", delay),
             Duration = 3
         })
         return true
@@ -253,7 +246,7 @@ local function SetBlatantFishingDelay(delay)
         blatantFishingDelay = delay
         Notify({
             Title = "Blatant Fishing", 
-            Content = string.format("Fishing delay set to %.2f seconds", delay),
+            Content = string.format("Fishing delay (loop) set to %.4f seconds", delay),
             Duration = 3
         })
         return true
@@ -1350,13 +1343,13 @@ AutoTab:Slider({
 
 AutoTab:Slider({
     Title = "Delay Fishing",
-    Desc = "Delay between fishing attempts",
+    Desc = "Delay between fishing attempts (Fast Loop)",
     Flag = "BlatantFishingDelay",
-    Step = 0.01,
+    Step = 0.001,
     Value = {
         Min = 0,
-        Max = 5,
-        Default = 0.87,
+        Max = 0.1,
+        Default = 0.0015,
     },
     Callback = function(value)
         SetBlatantFishingDelay(value)
@@ -1841,7 +1834,7 @@ SettingsTab:Button({
 -- Initial Notification
 Notify({
     Title = "Anggazyy Hub Ready", 
-    Content = "WindUI System initialized successfully with Blatant Fishing",
+    Content = "WindUI System initialized successfully with UPDATED Blatant Fishing",
     Duration = 4
 })
 
