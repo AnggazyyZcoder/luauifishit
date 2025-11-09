@@ -999,26 +999,50 @@ Window:Tag({
     Color = Color3.fromHex("#6b31ff")
 })
 
--- ========== INFORMATION TAB ==========
-local InfoTab = Window:Tab({
-    Title = "Information",
+-- ========== ABOUT US TAB ==========
+local AboutTab = Window:Tab({
+    Title = "About Us",
     Icon = "info",
 })
 
-InfoTab:Section({
-    Title = "Anggazyy Hub - Fish It",
+local AboutSection = AboutTab:Section({
+    Title = "About Anggazyy Hub",
+})
+
+AboutSection:Image({
+    Image = "https://files.catbox.moe/of2fla.jpg",
+    AspectRatio = "16:9",
+    Radius = 9,
+})
+
+AboutSection:Space({ Columns = 3 })
+
+AboutSection:Section({
+    Title = "What Is Anggazyy Hub?",
     TextSize = 24,
     FontWeight = Enum.FontWeight.SemiBold,
 })
 
-InfoTab:Space()
+AboutSection:Space()
 
-InfoTab:Section({
-    Title = "Premium fishing automation with performance optimization\n\nFeatures:\n• Auto Fishing System\n• Weather Machine\n• Bypass Features\n• Player Configuration\n• Mobile-Friendly UI",
+AboutSection:Section({
+    Title = [[Anggazyy Hub adalah script premium yang dirancang khusus untuk game Fish It di Roblox. 
+Dikembangkan oleh Anggazyy dengan fokus pada automasi dan optimasi gameplay.
+
+Fitur Utama:
+• Auto Fishing System - Automatisasi memancing yang cerdas
+• Weather Machine - Sistem pembelian dan manajemen cuaca
+• Bypass Features - Fitur canggih untuk meningkatkan gameplay
+• Player Configuration - Optimasi performa dan kontrol karakter
+• Mobile-Friendly UI - Antarmuka yang responsif untuk semua device
+
+Dibangun dengan teknologi terbaru untuk memberikan pengalaman gaming yang optimal dan efisien.]],
     TextSize = 16,
     TextTransparency = 0.35,
     FontWeight = Enum.FontWeight.Medium,
 })
+
+AboutTab:Space({ Columns = 4 })
 
 -- ========== AUTO SYSTEM TAB ==========
 local AutoTab = Window:Tab({
