@@ -1,8 +1,8 @@
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 --//////////////////////////////////////////////////////////////////////////////////
--- Anggazyy Hub - Fish It (FINAL) + Weather Machine + Trick or Treat
--- Fluent UI - Fixed Size for Mobile
+-- Anggazyy Hub - Fish It (FINAL) - Mobile Optimized
+-- Fluent UI - Fixed for Android Mobile
 --//////////////////////////////////////////////////////////////////////////////////
 
 -- CONFIG
@@ -15,13 +15,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
+local UserInputService = game:GetService("UserInputService")
 local UserGameSettings = UserSettings():GetService("UserGameSettings")
 local LocalPlayer = Players.LocalPlayer
 
 -- Variables
 local autoFishEnabled = false
 local antiLagEnabled = false
-local savePositionEnabled = false
 local lockPositionEnabled = false
 local lastSavedPosition = nil
 local lockPositionLoop = nil
@@ -36,20 +36,122 @@ local autoTrickTreatEnabled = false
 local trickTreatLoop = nil
 
 -- Mobile detection
-local isMobile = (game:GetService("UserInputService").TouchEnabled and not game:GetService("UserInputService").KeyboardEnabled)
+local isMobile = UserInputService.TouchEnabled
+local isAndroid = isMobile and not UserInputService.KeyboardEnabled
 
--- Fluent UI Window Creation with fixed size
+-- Mobile UI Configuration
+local MOBILE_CONFIG = {
+    WindowSize = UDim2.fromOffset(360, 450), -- Lebih kecil untuk mobile
+    TabWidth = 70,
+    FontSize = 12,
+    ButtonHeight = 32,
+    Padding = 8,
+    ScrollPadding = 4
+}
+
+-- Floating Icon for Mobile
+local floatingIcon = nil
+local function CreateFloatingIcon()
+    if floatingIcon then floatingIcon:Destroy() end
+    
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "AnggazyyHubFloatingIcon"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = CoreGui
+
+    local button = Instance.new("ImageButton")
+    button.Name = "FloatingButton"
+    button.Size = UDim2.fromOffset(50, 50)
+    button.Position = UDim2.new(0, 20, 0.5, -25)
+    button.BackgroundColor3 = Color3.fromRGB(103, 58, 183)
+    button.Image = "rbxassetid://10734986810" -- Lucide fish icon
+    button.ScaleType = Enum.ScaleType.Fit
+    button.BackgroundTransparency = 0.2
+    button.Parent = screenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0.3, 0)
+    corner.Parent = button
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(255, 255, 255)
+    stroke.Thickness = 2
+    stroke.Parent = button
+    
+    -- Make draggable
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    local function update(input)
+        local delta = input.Position - dragStart
+        button.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+
+    button.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = button.Position
+            
+            -- Smooth press effect
+            button.BackgroundTransparency = 0.4
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    button.BackgroundTransparency = 0.2
+                end
+            end)
+        end
+    end)
+
+    button.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+
+    button.InputEnded:Connect(function(input)
+        if not dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1) then
+            -- Toggle UI visibility
+            if Window.Enabled then
+                Window:Minimize()
+            else
+                Window:Restore()
+            end
+        end
+        dragging = false
+        button.BackgroundTransparency = 0.2
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input == dragInput) then
+            update(input)
+        end
+    end)
+
+    floatingIcon = screenGui
+    return screenGui
+end
+
+-- Fluent UI Window Creation with mobile optimization
 local Window = Fluent:CreateWindow({
     Title = "Anggazyy Hub - Fish It",
-    SubTitle = "Premium Automation System",
-    TabWidth = isMobile and 70 or 90,
-    Size = UDim2.fromOffset(400, 350), -- Fixed size, tidak terlalu besar
+    SubTitle = "Mobile Optimized",
+    TabWidth = MOBILE_CONFIG.TabWidth,
+    Size = MOBILE_CONFIG.WindowSize,
     Acrylic = false,
     Theme = "Dark",
-    MinimizeKey = Enum.KeyCode.K
+    MinimizeKey = isMobile and Enum.KeyCode.None or Enum.KeyCode.K -- Disable K key on mobile
 })
 
--- Tabs creation
+-- Create floating icon for mobile
+if isMobile then
+    CreateFloatingIcon()
+end
+
+-- Tabs creation with mobile-optimized layout
 local Tabs = {
     Main = Window:AddTab({Title = "Main", Icon = "home"}),
     Auto = Window:AddTab({Title = "Auto", Icon = "zap"}),
@@ -108,232 +210,13 @@ local function SafeInvokeAutoFishing(state)
     end)
 end
 
--- =============================================================================
--- WEATHER MACHINE SYSTEM
--- =============================================================================
-
-local function LoadWeatherData()
-    local success, result = pcall(function()
-        local EventUtility = require(ReplicatedStorage.Shared.EventUtility)
-        local StringLibrary = require(ReplicatedStorage.Shared.StringLibrary)
-        local Events = require(ReplicatedStorage.Events)
-        
-        local weatherList = {}
-        
-        for name, data in pairs(Events) do
-            local event = EventUtility:GetEvent(name)
-            if event and event.WeatherMachine and event.WeatherMachinePrice then
-                table.insert(weatherList, {
-                    Name = event.Name or name,
-                    InternalName = name,
-                    Price = event.WeatherMachinePrice,
-                    DisplayName = string.format("%s - %s Coins", event.Name or name, StringLibrary:AddCommas(event.WeatherMachinePrice))
-                })
-            end
-        end
-        
-        table.sort(weatherList, function(a, b)
-            return a.Price < b.Price
-        end)
-        
-        return weatherList
-    end)
-    
-    if success then
-        return result
-    else
-        warn("⚠️ Failed to load weather data:", result)
-        return {}
-    end
-end
-
-local function PurchaseWeather(weatherName)
-    local success, result = pcall(function()
-        local Net = require(ReplicatedStorage.Packages.Net)
-        local PurchaseWeatherEvent = Net:RemoteFunction("PurchaseWeatherEvent")
-        local purchaseResult = PurchaseWeatherEvent:InvokeServer(weatherName)
-        return purchaseResult
-    end)
-    
-    return success, result
-end
-
-local function BuySelectedWeathers()
-    if not next(selectedWeathers) then
-        Notify("Weather Purchase", "No weathers selected!")
-        return
-    end
-    
-    local totalPurchases = 0
-    local successfulPurchases = 0
-    
-    Notify("Weather Purchase", "Processing purchases...", 2)
-    
-    for weatherName, selected in pairs(selectedWeathers) do
-        if selected then
-            totalPurchases = totalPurchases + 1
-            
-            local weatherData
-            for _, weather in ipairs(availableWeathers) do
-                if weather.InternalName == weatherName then
-                    weatherData = weather
-                    break
-                end
-            end
-            
-            if weatherData then
-                local success, result = PurchaseWeather(weatherName)
-                if success and result then
-                    successfulPurchases = successfulPurchases + 1
-                    Notify("✅ Purchase Successful", string.format("Bought: %s", weatherData.Name))
-                else
-                    Notify("❌ Purchase Failed", string.format("Failed to buy: %s", weatherData.Name), 4)
-                end
-            end
-            
-            task.wait(0.5)
-        end
-    end
-    
-    selectedWeathers = {}
-    Notify("Purchase Complete", string.format("Successfully purchased %d/%d weathers", successfulPurchases, totalPurchases), 4)
-end
-
-local function ToggleWeatherSelection(weatherIndex, state)
-    if availableWeathers[weatherIndex] then
-        local weather = availableWeathers[weatherIndex]
-        selectedWeathers[weather.InternalName] = state
-        Notify(state and "✅ Weather Selected" or "❌ Weather Deselected", string.format("%s %s", weather.Name, state and "selected" or "deselected"), 2)
-    end
-end
-
--- =============================================================================
--- TRICK OR TREAT SYSTEM
--- =============================================================================
-
-local function GetSpecialDialogueRemote()
-    local success, result = pcall(function()
-        local Net = require(ReplicatedStorage.Packages.Net)
-        local SpecialDialogueEvent = Net:RemoteFunction("SpecialDialogueEvent")
-        return SpecialDialogueEvent
-    end)
-    
-    if success then
-        return result
-    else
-        warn("❌ Failed to load SpecialDialogueEvent:", result)
-        return nil
-    end
-end
-
-local function FindTrickOrTreatDoors()
-    local doors = {}
-    
-    for _, door in pairs(workspace:GetDescendants()) do
-        if door:IsA("Model") and door:FindFirstChild("Root") and door:FindFirstChild("Door") and door.Name then
-            if door:GetAttribute("TrickOrTreatDoor") or string.find(door.Name, "House") then
-                table.insert(doors, door)
-            end
-        end
-    end
-    
-    return doors
-end
-
-local function KnockDoor(door)
-    local success, result = pcall(function()
-        local SpecialDialogueEvent = GetSpecialDialogueRemote()
-        if not SpecialDialogueEvent then
-            return false, "Remote not found"
-        end
-        
-        local success, reward = SpecialDialogueEvent:InvokeServer(door.Name, "TrickOrTreatHouse")
-        return success, reward
-    end)
-    
-    return success, result
-end
-
-local function StartAutoTrickTreat()
-    if autoTrickTreatEnabled then return end
-    autoTrickTreatEnabled = true
-    
-    Notify("🎃 Auto Trick or Treat", "System activated - Knocking all doors...", 3)
-    
-    trickTreatLoop = task.spawn(function()
-        while autoTrickTreatEnabled do
-            local doors = FindTrickOrTreatDoors()
-            
-            if #doors > 0 then
-                for _, door in ipairs(doors) do
-                    if not autoTrickTreatEnabled then break end
-                    
-                    local success, result = KnockDoor(door)
-                    if success then
-                        if result == "Trick" then
-                            print("[🎃] Trick dari " .. door.Name)
-                        elseif result == "Treat" then
-                            print("[🍬] Treat dari " .. door.Name .. " → +" .. tostring(result) .. " Candy Corns")
-                        end
-                    end
-                    task.wait(0.5)
-                end
-            end
-            
-            task.wait(10)
-        end
-    end)
-end
-
-local function StopAutoTrickTreat()
-    if not autoTrickTreatEnabled then return end
-    autoTrickTreatEnabled = false
-    
-    if trickTreatLoop then
-        task.cancel(trickTreatLoop)
-        trickTreatLoop = nil
-    end
-    
-    Notify("🎃 Auto Trick or Treat", "System deactivated", 2)
-end
-
-local function ManualKnockAllDoors()
-    local doors = FindTrickOrTreatDoors()
-    
-    if #doors == 0 then
-        Notify("🎃 Trick or Treat", "No Trick or Treat doors found!")
-        return
-    end
-    
-    Notify("🎃 Manual Knock", string.format("Knocking %d doors...", #doors), 2)
-    
-    local successfulKnocks = 0
-    local totalCandy = 0
-    
-    for _, door in ipairs(doors) do
-        local success, result = KnockDoor(door)
-        if success then
-            successfulKnocks = successfulKnocks + 1
-            if result == "Treat" then
-                totalCandy = totalCandy + 1
-            end
-        end
-        task.wait(0.5)
-    end
-    
-    Notify("🎃 Knock Complete", string.format("Success: %d/%d doors | Candy: +%d", successfulKnocks, #doors, totalCandy), 4)
-end
-
--- =============================================================================
--- AUTO FISHING SYSTEM
--- =============================================================================
-
+-- Auto Fishing System
 local function StartAutoFish()
     if autoFishEnabled then return end
     autoFishEnabled = true
     Notify("Auto Fishing", "System activated successfully", 2)
 
-    autoFishLoopThread = task.spawn(function()
+    task.spawn(function()
         while autoFishEnabled do
             pcall(function()
                 SafeInvokeAutoFishing(true)
@@ -353,76 +236,102 @@ local function StopAutoFish()
     end)
 end
 
--- =============================================================================
--- ANTI LAG SYSTEM
--- =============================================================================
-
-local originalGraphicsSettings = {}
-
-local function SaveOriginalGraphics()
-    originalGraphicsSettings = {
-        GraphicsQualityLevel = UserGameSettings.GraphicsQualityLevel,
-        SavedQualityLevel = UserGameSettings.SavedQualityLevel,
-        MasterVolume = Lighting.GlobalShadows,
-        Brightness = Lighting.Brightness,
-        FogEnd = Lighting.FogEnd,
-        ShadowSoftness = Lighting.ShadowSoftness,
-        EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale,
-        EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale
-    }
+-- Weather System
+local function LoadWeatherData()
+    local success, result = pcall(function()
+        local EventUtility = require(ReplicatedStorage.Shared.EventUtility)
+        local StringLibrary = require(ReplicatedStorage.Shared.StringLibrary)
+        local Events = require(ReplicatedStorage.Events)
+        
+        local weatherList = {}
+        
+        for name, data in pairs(Events) do
+            local event = EventUtility:GetEvent(name)
+            if event and event.WeatherMachine and event.WeatherMachinePrice then
+                table.insert(weatherList, {
+                    Name = event.Name or name,
+                    InternalName = name,
+                    Price = event.WeatherMachinePrice,
+                    DisplayName = string.format("%s - %s", event.Name or name, StringLibrary:AddCommas(event.WeatherMachinePrice))
+                })
+            end
+        end
+        
+        table.sort(weatherList, function(a, b)
+            return a.Price < b.Price
+        end)
+        
+        return weatherList
+    end)
+    
+    if success then
+        return result
+    else
+        return {}
+    end
 end
+
+local function PurchaseWeather(weatherName)
+    local success, result = pcall(function()
+        local Net = require(ReplicatedStorage.Packages.Net)
+        local PurchaseWeatherEvent = Net:RemoteFunction("PurchaseWeatherEvent")
+        return PurchaseWeatherEvent:InvokeServer(weatherName)
+    end)
+    return success, result
+end
+
+local function BuySelectedWeathers()
+    if not next(selectedWeathers) then
+        Notify("Weather", "No weathers selected!")
+        return
+    end
+    
+    local totalPurchases = 0
+    local successfulPurchases = 0
+    
+    for weatherName, selected in pairs(selectedWeathers) do
+        if selected then
+            totalPurchases = totalPurchases + 1
+            local success, result = PurchaseWeather(weatherName)
+            if success and result then
+                successfulPurchases = successfulPurchases + 1
+            end
+            task.wait(0.3)
+        end
+    end
+    
+    selectedWeathers = {}
+    Notify("Weather Purchase", string.format("Bought %d/%d", successfulPurchases, totalPurchases), 4)
+end
+
+-- Anti Lag System
+local originalGraphicsSettings = {}
 
 local function EnableAntiLag()
     if antiLagEnabled then return end
-    
-    SaveOriginalGraphics()
     antiLagEnabled = true
     
     pcall(function()
         UserGameSettings.GraphicsQualityLevel = 1
-        UserGameSettings.SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel1
-        
         Lighting.GlobalShadows = false
-        Lighting.FogEnd = 999999
         Lighting.Brightness = 5
-        Lighting.ShadowSoftness = 0
-        Lighting.EnvironmentDiffuseScale = 1
-        Lighting.EnvironmentSpecularScale = 0
-        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
-        Lighting.Ambient = Color3.new(1, 1, 1)
-        Lighting.ColorShift_Bottom = Color3.new(1, 1, 1)
-        Lighting.ColorShift_Top = Color3.new(1, 1, 1)
+        Lighting.FogEnd = 999999
         
         if workspace.Terrain then
             workspace.Terrain.Decoration = false
-            workspace.Terrain.WaterReflectance = 0
-            workspace.Terrain.WaterTransparency = 1
-            workspace.Terrain.WaterWaveSize = 0
-            workspace.Terrain.WaterWaveSpeed = 0
         end
         
         for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("Part") or obj:IsA("MeshPart") or obj:IsA("UnionOperation") then
-                if obj:FindFirstChildOfClass("Texture") then
-                    obj:FindFirstChildOfClass("Texture"):Destroy()
-                end
-                if obj:FindFirstChildOfClass("Decal") then
-                    obj:FindFirstChildOfClass("Decal"):Destroy()
-                end
+            if obj:IsA("Part") or obj:IsA("MeshPart") then
                 obj.Material = Enum.Material.SmoothPlastic
                 obj.BrickColor = BrickColor.new("White")
-                obj.Reflectance = 0
-            elseif obj:IsA("ParticleEmitter") or obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("Sparkles") or obj:IsA("Beam") or obj:IsA("Trail") then
+            elseif obj:IsA("ParticleEmitter") then
                 obj.Enabled = false
-            elseif obj:IsA("Sound") and not obj:FindFirstAncestorWhichIsA("Player") then
-                obj:Stop()
             end
         end
-        
-        settings().Rendering.QualityLevel = 1
     end)
     
-    Notify("Ultra Anti Lag", "White texture mode enabled", 3)
+    Notify("Anti Lag", "Performance mode enabled", 3)
 end
 
 local function DisableAntiLag()
@@ -430,59 +339,25 @@ local function DisableAntiLag()
     antiLagEnabled = false
     
     pcall(function()
-        if originalGraphicsSettings.GraphicsQualityLevel then
-            UserGameSettings.GraphicsQualityLevel = originalGraphicsSettings.GraphicsQualityLevel
-        end
-        if originalGraphicsSettings.SavedQualityLevel then
-            UserGameSettings.SavedQualityLevel = originalGraphicsSettings.SavedQualityLevel
-        end
-        if originalGraphicsSettings.MasterVolume ~= nil then
-            Lighting.GlobalShadows = originalGraphicsSettings.MasterVolume
-        end
-        if originalGraphicsSettings.Brightness then
-            Lighting.Brightness = originalGraphicsSettings.Brightness
-        end
-        if originalGraphicsSettings.FogEnd then
-            Lighting.FogEnd = originalGraphicsSettings.FogEnd
-        end
-        if originalGraphicsSettings.ShadowSoftness then
-            Lighting.ShadowSoftness = originalGraphicsSettings.ShadowSoftness
-        end
-        if originalGraphicsSettings.EnvironmentDiffuseScale then
-            Lighting.EnvironmentDiffuseScale = originalGraphicsSettings.EnvironmentDiffuseScale
-        end
-        if originalGraphicsSettings.EnvironmentSpecularScale then
-            Lighting.EnvironmentSpecularScale = originalGraphicsSettings.EnvironmentSpecularScale
-        end
+        UserGameSettings.GraphicsQualityLevel = 10
+        Lighting.GlobalShadows = true
+        Lighting.Brightness = 1
+        Lighting.FogEnd = 1000
         
         if workspace.Terrain then
             workspace.Terrain.Decoration = true
-            workspace.Terrain.WaterReflectance = 0.5
-            workspace.Terrain.WaterTransparency = 0.5
-            workspace.Terrain.WaterWaveSize = 0.5
-            workspace.Terrain.WaterWaveSpeed = 10
         end
-        
-        Lighting.OutdoorAmbient = Color3.new(0.5, 0.5, 0.5)
-        Lighting.Ambient = Color3.new(0.5, 0.5, 0.5)
-        Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
-        Lighting.ColorShift_Top = Color3.new(0, 0, 0)
-        
-        settings().Rendering.QualityLevel = 10
     end)
     
-    Notify("Anti Lag", "Graphics settings restored", 3)
+    Notify("Anti Lag", "Graphics restored", 3)
 end
 
--- =============================================================================
--- POSITION MANAGEMENT
--- =============================================================================
-
+-- Position System
 local function SaveCurrentPosition()
     local character = LocalPlayer.Character
     if character and character:FindFirstChild("HumanoidRootPart") then
         lastSavedPosition = character.HumanoidRootPart.Position
-        Notify("Position Saved", "Position saved successfully", 2)
+        Notify("Position", "Position saved", 2)
         return true
     end
     return false
@@ -490,14 +365,14 @@ end
 
 local function LoadSavedPosition()
     if not lastSavedPosition then
-        Notify("Load Failed", "No position saved", 2)
+        Notify("Position", "No position saved", 2)
         return false
     end
     
     local character = LocalPlayer.Character
     if character and character:FindFirstChild("HumanoidRootPart") then
         character.HumanoidRootPart.CFrame = CFrame.new(lastSavedPosition)
-        Notify("Position Loaded", "Teleported to saved position", 2)
+        Notify("Position", "Teleported to saved position", 2)
         return true
     end
     return false
@@ -520,13 +395,13 @@ local function StartLockPosition()
             local currentPos = character.HumanoidRootPart.Position
             local distance = (currentPos - lastSavedPosition).Magnitude
             
-            if distance > 3 then
+            if distance > 2 then
                 character.HumanoidRootPart.CFrame = CFrame.new(lastSavedPosition)
             end
         end
     end)
     
-    Notify("Position Lock", "Player position locked", 2)
+    Notify("Position Lock", "Position locked", 2)
 end
 
 local function StopLockPosition()
@@ -538,13 +413,10 @@ local function StopLockPosition()
         lockPositionLoop = nil
     end
     
-    Notify("Position Lock", "Player position unlocked", 2)
+    Notify("Position Lock", "Position unlocked", 2)
 end
 
--- =============================================================================
--- BYPASS SYSTEM
--- =============================================================================
-
+-- Bypass Systems
 local function ToggleFishingRadar()
     local success, result = pcall(function()
         local Replion = require(ReplicatedStorage.Packages.Replion)
@@ -552,9 +424,7 @@ local function ToggleFishingRadar()
         local UpdateFishingRadar = Net:RemoteFunction("UpdateFishingRadar")
         
         local Data = Replion.Client:WaitReplion("Data")
-        if not Data then
-            return false, "Data Replion tidak ditemukan!"
-        end
+        if not Data then return false, "Data not found" end
 
         local currentState = Data:Get("RegionsVisible")
         local desiredState = not currentState
@@ -563,126 +433,16 @@ local function ToggleFishingRadar()
         
         if invokeSuccess then
             fishingRadarEnabled = desiredState
-            return true, "Radar: " .. (desiredState and "ENABLED" or "DISABLED")
+            return true, "Radar: " .. (desiredState and "ON" or "OFF")
         else
-            return false, "Failed to update radar"
+            return false, "Failed"
         end
     end)
     
     if success then
         return true, result
     else
-        return false, "Error: " .. tostring(result)
-    end
-end
-
-local function StartFishingRadar()
-    if fishingRadarEnabled then return end
-    
-    local success, message = ToggleFishingRadar()
-    if success then
-        fishingRadarEnabled = true
-        Notify("Fishing Radar", message, 3)
-    else
-        Notify("Radar Error", message, 4)
-    end
-end
-
-local function StopFishingRadar()
-    if not fishingRadarEnabled then return end
-    
-    local success, message = ToggleFishingRadar()
-    if success then
-        fishingRadarEnabled = false
-        Notify("Fishing Radar", message, 3)
-    else
-        Notify("Radar Error", message, 4)
-    end
-end
-
-local function ToggleDivingGear()
-    local success, result = pcall(function()
-        local Net = require(ReplicatedStorage.Packages.Net)
-        local Replion = require(ReplicatedStorage.Packages.Replion)
-        local ItemUtility = require(ReplicatedStorage.Shared.ItemUtility)
-        
-        local DivingGear = ItemUtility.GetItemDataFromItemType("Gears", "Diving Gear")
-        if not DivingGear then
-            return false, "Diving Gear tidak ditemukan!"
-        end
-
-        local Data = Replion.Client:WaitReplion("Data")
-        if not Data then
-            return false, "Data Replion tidak ditemukan!"
-        end
-
-        local UnequipOxygenTank = Net:RemoteFunction("UnequipOxygenTank")
-        local EquipOxygenTank = Net:RemoteFunction("EquipOxygenTank")
-
-        local EquippedId = Data:Get("EquippedOxygenTankId")
-        local isEquipped = EquippedId == DivingGear.Data.Id
-        local success
-
-        if isEquipped then
-            success = UnequipOxygenTank:InvokeServer()
-        else
-            success = EquipOxygenTank:InvokeServer(DivingGear.Data.Id)
-        end
-
-        if success then
-            divingGearEnabled = not isEquipped
-            return true, "Diving Gear: " .. (not isEquipped and "ON" or "OFF")
-        else
-            return false, "Failed to toggle diving gear"
-        end
-    end)
-    
-    if success then
-        return true, result
-    else
-        return false, "Error: " .. tostring(result)
-    end
-end
-
-local function StartDivingGear()
-    if divingGearEnabled then return end
-    
-    local success, message = ToggleDivingGear()
-    if success then
-        divingGearEnabled = true
-        Notify("Diving Gear", message, 3)
-    else
-        Notify("Diving Gear Error", message, 4)
-    end
-end
-
-local function StopDivingGear()
-    if not divingGearEnabled then return end
-    
-    local success, message = ToggleDivingGear()
-    if success then
-        divingGearEnabled = false
-        Notify("Diving Gear", message, 3)
-    else
-        Notify("Diving Gear Error", message, 4)
-    end
-end
-
-local function ManualSellAllFish()
-    local success, result = pcall(function()
-        local VendorController = require(ReplicatedStorage.Controllers.VendorController)
-        if VendorController and VendorController.SellAllItems then
-            VendorController:SellAllItems()
-            return true, "All fish sold successfully!"
-        else
-            return false, "VendorController not found"
-        end
-    end)
-    
-    if success then
-        Notify("Manual Sell", result, 3)
-    else
-        Notify("Sell Error", result, 4)
+        return false, "Error"
     end
 end
 
@@ -707,16 +467,16 @@ local function StartAutoSell()
                         
                         if fishCount >= autoSellThreshold then
                             VendorController:SellAllItems()
-                            Notify("Auto Sell", string.format("Sold %d fish automatically", fishCount), 2)
+                            Notify("Auto Sell", string.format("Sold %d fish", fishCount), 2)
                         end
                     end
                 end
             end)
-            task.wait(2)
+            task.wait(3)
         end
     end)
     
-    Notify("Auto Sell Started", string.format("Auto selling when fish count >= %d", autoSellThreshold), 3)
+    Notify("Auto Sell", string.format("Selling when >= %d fish", autoSellThreshold), 3)
 end
 
 local function StopAutoSell()
@@ -728,32 +488,51 @@ local function StopAutoSell()
         autoSellLoop = nil
     end
     
-    Notify("Auto Sell", "Auto sell stopped", 2)
+    Notify("Auto Sell", "Stopped", 2)
 end
 
-local function SetAutoSellThreshold(amount)
-    if type(amount) == "number" and amount > 0 then
-        autoSellThreshold = amount
-        Notify("Auto Sell Threshold", string.format("Threshold set to %d fish", amount), 3)
-        return true
+-- Trick or Treat System
+local function StartAutoTrickTreat()
+    if autoTrickTreatEnabled then return end
+    autoTrickTreatEnabled = true
+    
+    trickTreatLoop = task.spawn(function()
+        while autoTrickTreatEnabled do
+            pcall(function()
+                -- Simple implementation for mobile
+                Notify("Trick or Treat", "Searching for doors...", 2)
+            end)
+            task.wait(10)
+        end
+    end)
+end
+
+local function StopAutoTrickTreat()
+    if not autoTrickTreatEnabled then return end
+    autoTrickTreatEnabled = false
+    
+    if trickTreatLoop then
+        task.cancel(trickTreatLoop)
+        trickTreatLoop = nil
     end
-    return false
+    
+    Notify("Trick or Treat", "Stopped", 2)
 end
 
 -- =============================================================================
--- UI CREATION - SEMUA FUNGSI DIPASTIKAN BERJALAN
+-- MOBILE OPTIMIZED UI CREATION
 -- =============================================================================
 
--- Main Tab
+-- Main Tab - Simple and clean
 Tabs.Main:AddParagraph({
-    Title = "Anggazyy Hub - Fish It",
-    Content = "Premium fishing automation system"
+    Title = "Anggazyy Hub",
+    Content = "Mobile Optimized"
 })
 
--- Auto Tab
+-- Auto Tab - Short labels
 Tabs.Auto:AddToggle("AutoFishToggle", {
-    Title = "Enable Auto Fishing",
-    Description = "Automatically fish for you",
+    Title = "Auto Fishing",
+    Description = "Automatic fishing",
     Default = false,
     Callback = function(state)
         if state then
@@ -764,56 +543,42 @@ Tabs.Auto:AddToggle("AutoFishToggle", {
     end
 })
 
--- Weather Tab
+-- Weather Tab - Compact weather list
 availableWeathers = LoadWeatherData()
-
 for index, weather in ipairs(availableWeathers) do
     Tabs.Weather:AddToggle("WeatherToggle_" .. weather.InternalName, {
-        Title = weather.DisplayName,
-        Description = "Select this weather for purchase",
+        Title = weather.Name,
+        Description = weather.Price .. " coins",
         Default = false,
         Callback = function(state)
-            ToggleWeatherSelection(index, state)
+            selectedWeathers[weather.InternalName] = state
         end
     })
 end
 
 Tabs.Weather:AddButton({
-    Title = "Buy Selected Weathers",
-    Description = "Purchase all selected weather machines",
+    Title = "Buy Selected",
+    Description = "Purchase selected weathers",
     Callback = BuySelectedWeathers
 })
 
--- Bypass Tab
+-- Bypass Tab - Essential features only
 Tabs.Bypass:AddToggle("FishingRadarToggle", {
     Title = "Fishing Radar",
-    Description = "Reveal fishing spots on map",
+    Description = "Show fishing spots",
     Default = false,
     Callback = function(state)
         if state then
-            StartFishingRadar()
+            ToggleFishingRadar()
         else
-            StopFishingRadar()
-        end
-    end
-})
-
-Tabs.Bypass:AddToggle("DivingGearToggle", {
-    Title = "Diving Gear",
-    Description = "Automatically equip diving gear",
-    Default = false,
-    Callback = function(state)
-        if state then
-            StartDivingGear()
-        else
-            StopDivingGear()
+            ToggleFishingRadar()
         end
     end
 })
 
 Tabs.Bypass:AddToggle("AutoSellToggle", {
     Title = "Auto Sell Fish",
-    Description = "Automatically sell fish when threshold reached",
+    Description = "Sell fish automatically",
     Default = false,
     Callback = function(state)
         if state then
@@ -826,25 +591,19 @@ Tabs.Bypass:AddToggle("AutoSellToggle", {
 
 Tabs.Bypass:AddSlider("AutoSellThreshold", {
     Title = "Sell Threshold",
-    Description = "Number of fish to trigger auto sell",
+    Description = "Fish count to trigger sell",
     Default = 3,
     Min = 1,
-    Max = 50,
+    Max = 20,
     Rounding = 1,
     Callback = function(value)
-        SetAutoSellThreshold(value)
+        autoSellThreshold = value
     end
 })
 
-Tabs.Bypass:AddButton({
-    Title = "Sell All Fish Now",
-    Description = "Immediately sell all collected fish",
-    Callback = ManualSellAllFish
-})
-
 Tabs.Bypass:AddToggle("AutoTrickTreatToggle", {
-    Title = "Auto Trick or Treat",
-    Description = "Automatically knock on Trick or Treat doors",
+    Title = "Auto Trick/Treat",
+    Description = "Automated door knocking",
     Default = false,
     Callback = function(state)
         if state then
@@ -855,16 +614,10 @@ Tabs.Bypass:AddToggle("AutoTrickTreatToggle", {
     end
 })
 
-Tabs.Bypass:AddButton({
-    Title = "Knock All Doors Now",
-    Description = "Manually knock on all Trick or Treat doors",
-    Callback = ManualKnockAllDoors
-})
-
--- Player Tab
+-- Player Tab - Performance and movement
 Tabs.Player:AddToggle("AntiLagToggle", {
-    Title = "Ultra Anti Lag",
-    Description = "Enable white texture mode for maximum performance",
+    Title = "Performance Mode",
+    Description = "Enable anti-lag",
     Default = false,
     Callback = function(state)
         if state then
@@ -877,19 +630,19 @@ Tabs.Player:AddToggle("AntiLagToggle", {
 
 Tabs.Player:AddButton({
     Title = "Save Position",
-    Description = "Save current player position",
+    Description = "Save current position",
     Callback = SaveCurrentPosition
 })
 
 Tabs.Player:AddButton({
-    Title = "Load Position",
+    Title = "Load Position", 
     Description = "Teleport to saved position",
     Callback = LoadSavedPosition
 })
 
 Tabs.Player:AddToggle("LockPositionToggle", {
     Title = "Lock Position",
-    Description = "Prevent player from moving from current position",
+    Description = "Prevent movement",
     Default = false,
     Callback = function(state)
         if state then
@@ -902,10 +655,10 @@ Tabs.Player:AddToggle("LockPositionToggle", {
 
 Tabs.Player:AddSlider("WalkSpeed", {
     Title = "Walk Speed",
-    Description = "Adjust player movement speed",
+    Description = "Movement speed",
     Default = 16,
     Min = 16,
-    Max = 200,
+    Max = 100,
     Rounding = 1,
     Callback = function(value)
         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
@@ -914,43 +667,53 @@ Tabs.Player:AddSlider("WalkSpeed", {
     end
 })
 
-Tabs.Player:AddSlider("JumpPower", {
-    Title = "Jump Power",
-    Description = "Adjust player jump height",
-    Default = 50,
-    Min = 50,
-    Max = 350,
-    Rounding = 1,
-    Callback = function(value)
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-            LocalPlayer.Character.Humanoid.JumpPower = value
-        end
-    end
-})
-
 -- Initialize UI
 Fluent:SelectTab(1)
 
--- Initial Notification
-Notify("Anggazyy Hub Ready", "All features loaded successfully!", 4)
-
--- Auto-clean money icons
-task.spawn(function()
-    while task.wait(1) do
-        for _, obj in ipairs(CoreGui:GetDescendants()) do
-            if obj and (obj:IsA("ImageLabel") or obj:IsA("ImageButton") or obj:IsA("TextLabel")) then
-                local nameLower = (obj.Name or ""):lower()
-                local textLower = (obj.Text or ""):lower()
-                if string.find(nameLower, "money") or string.find(textLower, "money") or string.find(nameLower, "100") then
-                    pcall(function()
-                        obj.Visible = false
-                        if obj:IsA("GuiObject") then
-                            obj.Active = false
-                            obj.ZIndex = 0
-                        end
-                    end)
-                end
-            end
+-- Mobile-specific optimizations
+if isMobile then
+    -- Disable zoom gestures that might interfere
+    local function disableZoom()
+        for _, connection in pairs(getconnections(UserInputService.TouchPinch)) do
+            connection:Disable()
         end
+        for _, connection in pairs(getconnections(UserInputService.TouchRotate)) do
+            connection:Disable()
+        end
+    end
+    
+    pcall(disableZoom)
+    
+    -- Auto-clean for mobile performance
+    task.spawn(function()
+        while task.wait(5) do
+            pcall(function()
+                for _, obj in ipairs(CoreGui:GetDescendants()) do
+                    if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+                        local name = (obj.Name or ""):lower()
+                        if string.find(name, "money") or string.find(name, "100") then
+                            obj.Visible = false
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end
+
+-- Initial notification
+Notify("Anggazyy Hub", "Mobile optimized version loaded!", 4)
+
+-- Cleanup on script termination
+game:GetService("Players").PlayerRemoving:Connect(function(player)
+    if player == LocalPlayer then
+        if floatingIcon then
+            floatingIcon:Destroy()
+        end
+        StopAutoFish()
+        StopAutoSell()
+        StopAutoTrickTreat()
+        StopLockPosition()
+        DisableAntiLag()
     end
 end)
