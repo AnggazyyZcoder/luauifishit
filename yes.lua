@@ -2,106 +2,60 @@ local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/
 
 --//////////////////////////////////////////////////////////////////////////////////
 -- Anggazyy Hub - Fish It (FINAL) + Weather Machine + Trick or Treat
--- Fluent UI (Modern Version) - Mobile Responsive
--- Clean, modern, professional design optimized for mobile
--- Author: Anggazyy (refactor)
+-- Fluent UI - Fixed Size for Mobile
 --//////////////////////////////////////////////////////////////////////////////////
 
--- CONFIG: ubah sesuai kebutuhan
+-- CONFIG
 local AUTO_FISH_REMOTE_NAME = "UpdateAutoFishingState"
 local NET_PACKAGES_FOLDER = "Packages"
 
--- Services & Variables
+-- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local UserGameSettings = UserSettings():GetService("UserGameSettings")
 local LocalPlayer = Players.LocalPlayer
 
+-- Variables
 local autoFishEnabled = false
-local autoFishLoopThread = nil
-local coordinateGui = nil
-local statusParagraph = nil
-local currentSelectedMap = nil
-
--- Player Configuration Variables
 local antiLagEnabled = false
 local savePositionEnabled = false
 local lockPositionEnabled = false
 local lastSavedPosition = nil
 local lockPositionLoop = nil
-local originalGraphicsSettings = {}
-
--- Bypass Variables
 local fishingRadarEnabled = false
 local divingGearEnabled = false
 local autoSellEnabled = false
 local autoSellThreshold = 3
 local autoSellLoop = nil
-
--- Weather System Variables
 local selectedWeathers = {}
 local availableWeathers = {}
-
--- Trick or Treat Variables
 local autoTrickTreatEnabled = false
 local trickTreatLoop = nil
 
--- UI Configuration
-local COLOR_ENABLED = Color3.fromRGB(76, 175, 80)  -- Green
-local COLOR_DISABLED = Color3.fromRGB(244, 67, 54) -- Red
-local COLOR_PRIMARY = Color3.fromRGB(103, 58, 183) -- Purple
-local COLOR_SECONDARY = Color3.fromRGB(30, 30, 46)  -- Dark
-
--- Mobile detection and responsive sizing
+-- Mobile detection
 local isMobile = (game:GetService("UserInputService").TouchEnabled and not game:GetService("UserInputService").KeyboardEnabled)
-local BASE_FONT_SIZE = isMobile and 12 or 14
-local BUTTON_HEIGHT = isMobile and 32 or 28
-local PADDING = isMobile and 8 or 6
 
--- Auto-clean money icons
-task.spawn(function()
-    while task.wait(1) do
-        for _, obj in ipairs(CoreGui:GetDescendants()) do
-            if obj and (obj:IsA("ImageLabel") or obj:IsA("ImageButton") or obj:IsA("TextLabel")) then
-                local nameLower = (obj.Name or ""):lower()
-                local textLower = (obj.Text or ""):lower()
-                if string.find(nameLower, "money") or string.find(textLower, "money") or string.find(nameLower, "100") then
-                    pcall(function()
-                        obj.Visible = false
-                        if obj:IsA("GuiObject") then
-                            obj.Active = false
-                            obj.ZIndex = 0
-                        end
-                    end)
-                end
-            end
-        end
-    end
-end)
-
--- Fluent UI Window Creation with mobile optimization
+-- Fluent UI Window Creation with fixed size
 local Window = Fluent:CreateWindow({
     Title = "Anggazyy Hub - Fish It",
     SubTitle = "Premium Automation System",
-    TabWidth = isMobile and 80 or 100,
-    Size = isMobile and UDim2.fromOffset(350, 500) or UDim2.fromOffset(500, 400),
-    Acrylic = false, -- Disable acrylic for better mobile performance
+    TabWidth = isMobile and 70 or 90,
+    Size = UDim2.fromOffset(400, 350), -- Fixed size, tidak terlalu besar
+    Acrylic = false,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.K
 })
 
--- Tabs creation with mobile-optimized layout
+-- Tabs creation
 local Tabs = {
     Main = Window:AddTab({Title = "Main", Icon = "home"}),
     Auto = Window:AddTab({Title = "Auto", Icon = "zap"}),
     Weather = Window:AddTab({Title = "Weather", Icon = "cloud"}),
     Bypass = Window:AddTab({Title = "Bypass", Icon = "shield"}),
-    Player = Window:AddTab({Title = "Player", Icon = "user"}),
-    Settings = Window:AddTab({Title = "Settings", Icon = "settings"})
+    Player = Window:AddTab({Title = "Player", Icon = "user"})
 }
 
 -- Notification System
@@ -109,7 +63,6 @@ local function Notify(title, content, duration)
     Fluent:Notify({
         Title = title,
         Content = content,
-        SubContent = nil,
         Duration = duration or 3
     })
 end
@@ -246,15 +199,6 @@ local function BuySelectedWeathers()
     Notify("Purchase Complete", string.format("Successfully purchased %d/%d weathers", successfulPurchases, totalPurchases), 4)
 end
 
-local function RefreshWeatherList()
-    availableWeathers = LoadWeatherData()
-    local weatherOptions = {}
-    for _, weather in ipairs(availableWeathers) do
-        table.insert(weatherOptions, weather.DisplayName)
-    end
-    return weatherOptions, availableWeathers
-end
-
 local function ToggleWeatherSelection(weatherIndex, state)
     if availableWeathers[weatherIndex] then
         local weather = availableWeathers[weatherIndex]
@@ -321,8 +265,6 @@ local function StartAutoTrickTreat()
             local doors = FindTrickOrTreatDoors()
             
             if #doors > 0 then
-                Notify("🎃 Trick or Treat", string.format("Found %d doors, knocking...", #doors), 2)
-                
                 for _, door in ipairs(doors) do
                     if not autoTrickTreatEnabled then break end
                     
@@ -332,17 +274,10 @@ local function StartAutoTrickTreat()
                             print("[🎃] Trick dari " .. door.Name)
                         elseif result == "Treat" then
                             print("[🍬] Treat dari " .. door.Name .. " → +" .. tostring(result) .. " Candy Corns")
-                        else
-                            print("[❌] Gagal interaksi dengan " .. door.Name)
                         end
-                    else
-                        print("[❌] Error knocking " .. door.Name .. ": " .. tostring(result))
                     end
-                    
                     task.wait(0.5)
                 end
-            else
-                print("[🔍] Tidak ada Trick or Treat doors yang ditemukan")
             end
             
             task.wait(10)
@@ -389,7 +324,10 @@ local function ManualKnockAllDoors()
     Notify("🎃 Knock Complete", string.format("Success: %d/%d doors | Candy: +%d", successfulKnocks, #doors, totalCandy), 4)
 end
 
--- Auto Fishing System
+-- =============================================================================
+-- AUTO FISHING SYSTEM
+-- =============================================================================
+
 local function StartAutoFish()
     if autoFishEnabled then return end
     autoFishEnabled = true
@@ -416,8 +354,10 @@ local function StopAutoFish()
 end
 
 -- =============================================================================
--- ULTRA ANTI LAG SYSTEM
+-- ANTI LAG SYSTEM
 -- =============================================================================
+
+local originalGraphicsSettings = {}
 
 local function SaveOriginalGraphics()
     originalGraphicsSettings = {
@@ -482,7 +422,7 @@ local function EnableAntiLag()
         settings().Rendering.QualityLevel = 1
     end)
     
-    Notify("Ultra Anti Lag", "White texture mode enabled - Maximum performance", 3)
+    Notify("Ultra Anti Lag", "White texture mode enabled", 3)
 end
 
 local function DisableAntiLag()
@@ -534,7 +474,10 @@ local function DisableAntiLag()
     Notify("Anti Lag", "Graphics settings restored", 3)
 end
 
--- Position Management System
+-- =============================================================================
+-- POSITION MANAGEMENT
+-- =============================================================================
+
 local function SaveCurrentPosition()
     local character = LocalPlayer.Character
     if character and character:FindFirstChild("HumanoidRootPart") then
@@ -797,41 +740,18 @@ local function SetAutoSellThreshold(amount)
     return false
 end
 
-local function SafeToggleRadar()
-    local success, message = ToggleFishingRadar()
-    if success then
-        Notify("Fishing Radar", message, 3)
-    else
-        Notify("Radar Error", message, 4)
-    end
-end
-
-local function SafeToggleDivingGear()
-    local success, message = ToggleDivingGear()
-    if success then
-        Notify("Diving Gear", message, 3)
-    else
-        Notify("Diving Gear Error", message, 4)
-    end
-end
-
 -- =============================================================================
--- UI CREATION - FLUENT UI
+-- UI CREATION - SEMUA FUNGSI DIPASTIKAN BERJALAN
 -- =============================================================================
 
 -- Main Tab
 Tabs.Main:AddParagraph({
     Title = "Anggazyy Hub - Fish It",
-    Content = "Premium fishing automation with performance optimization"
+    Content = "Premium fishing automation system"
 })
 
 -- Auto Tab
-Tabs.Auto:AddParagraph({
-    Title = "Auto Fishing System",
-    Content = "Automated fishing with server communication"
-})
-
-local AutoFishToggle = Tabs.Auto:AddToggle("AutoFishToggle", {
+Tabs.Auto:AddToggle("AutoFishToggle", {
     Title = "Enable Auto Fishing",
     Description = "Automatically fish for you",
     Default = false,
@@ -845,17 +765,10 @@ local AutoFishToggle = Tabs.Auto:AddToggle("AutoFishToggle", {
 })
 
 -- Weather Tab
-Tabs.Weather:AddParagraph({
-    Title = "Weather Machine",
-    Content = "Purchase and activate different weather events"
-})
-
 availableWeathers = LoadWeatherData()
 
--- Create weather toggles
-local weatherToggles = {}
 for index, weather in ipairs(availableWeathers) do
-    local toggle = Tabs.Weather:AddToggle("WeatherToggle_" .. weather.InternalName, {
+    Tabs.Weather:AddToggle("WeatherToggle_" .. weather.InternalName, {
         Title = weather.DisplayName,
         Description = "Select this weather for purchase",
         Default = false,
@@ -863,7 +776,6 @@ for index, weather in ipairs(availableWeathers) do
             ToggleWeatherSelection(index, state)
         end
     })
-    table.insert(weatherToggles, toggle)
 end
 
 Tabs.Weather:AddButton({
@@ -872,44 +784,7 @@ Tabs.Weather:AddButton({
     Callback = BuySelectedWeathers
 })
 
-Tabs.Weather:AddButton({
-    Title = "Refresh Weather List",
-    Description = "Reload available weather data",
-    Callback = function()
-        local newOptions, newWeathers = RefreshWeatherList()
-        
-        for _, toggle in ipairs(weatherToggles) do
-            pcall(function() 
-                if toggle then
-                    -- Remove old toggle
-                    toggle:Set(nil)
-                end
-            end)
-        end
-        weatherToggles = {}
-        
-        for index, weather in ipairs(newWeathers) do
-            local toggle = Tabs.Weather:AddToggle("WeatherToggle_" .. weather.InternalName, {
-                Title = weather.DisplayName,
-                Description = "Select this weather for purchase",
-                Default = false,
-                Callback = function(state)
-                    ToggleWeatherSelection(index, state)
-                end
-            })
-            table.insert(weatherToggles, toggle)
-        end
-        
-        Notify("Weather List Updated", string.format("Loaded %d available weathers", #newWeathers), 3)
-    end
-})
-
 -- Bypass Tab
-Tabs.Bypass:AddParagraph({
-    Title = "Game Bypass Features",
-    Content = "Advanced features to enhance gameplay"
-})
-
 Tabs.Bypass:AddToggle("FishingRadarToggle", {
     Title = "Fishing Radar",
     Description = "Reveal fishing spots on map",
@@ -967,7 +842,6 @@ Tabs.Bypass:AddButton({
     Callback = ManualSellAllFish
 })
 
--- Trick or Treat Section
 Tabs.Bypass:AddToggle("AutoTrickTreatToggle", {
     Title = "Auto Trick or Treat",
     Description = "Automatically knock on Trick or Treat doors",
@@ -1054,48 +928,29 @@ Tabs.Player:AddSlider("JumpPower", {
     end
 })
 
--- Settings Tab
-Tabs.Settings:AddButton({
-    Title = "Unload Hub",
-    Description = "Completely remove the hub from game",
-    Callback = function()
-        StopAutoFish()
-        StopLockPosition()
-        DisableAntiLag()
-        StopFishingRadar()
-        StopDivingGear()
-        StopAutoSell()
-        StopAutoTrickTreat()
-        Fluent:Destroy()
-        Notify("Unload", "Hub unloaded successfully", 2)
-    end
-})
-
-Tabs.Settings:AddButton({
-    Title = "Clean UI",
-    Description = "Remove money icons and clean interface",
-    Callback = function()
-        for _, obj in ipairs(CoreGui:GetDescendants()) do
-            pcall(function()
-                if (obj:IsA("ImageLabel") or obj:IsA("ImageButton") or obj:IsA("TextLabel")) then
-                    local name = (obj.Name or ""):lower()
-                    local text = (obj.Text or ""):lower()
-                    if string.find(name, "money") or string.find(text, "money") then
-                        obj.Visible = false
-                    end
-                end
-            end)
-        end
-        Notify("Clean", "UI cleaned", 2)
-    end
-})
-
--- Initialize Fluent UI
+-- Initialize UI
 Fluent:SelectTab(1)
 
 -- Initial Notification
-Notify("Anggazyy Hub Ready", "System initialized successfully with Fluent UI", 4)
+Notify("Anggazyy Hub Ready", "All features loaded successfully!", 4)
 
---//////////////////////////////////////////////////////////////////////////////////
--- System Initialization Complete - Fluent UI Version
---//////////////////////////////////////////////////////////////////////////////////
+-- Auto-clean money icons
+task.spawn(function()
+    while task.wait(1) do
+        for _, obj in ipairs(CoreGui:GetDescendants()) do
+            if obj and (obj:IsA("ImageLabel") or obj:IsA("ImageButton") or obj:IsA("TextLabel")) then
+                local nameLower = (obj.Name or ""):lower()
+                local textLower = (obj.Text or ""):lower()
+                if string.find(nameLower, "money") or string.find(textLower, "money") or string.find(nameLower, "100") then
+                    pcall(function()
+                        obj.Visible = false
+                        if obj:IsA("GuiObject") then
+                            obj.Active = false
+                            obj.ZIndex = 0
+                        end
+                    end)
+                end
+            end
+        end
+    end
+end)
