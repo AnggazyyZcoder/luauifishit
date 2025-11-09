@@ -25,9 +25,10 @@ Compkiller:Loader("rbxassetid://120245531583106" , 1.5).yield();
 local MenuKey = "LeftAlt";
 
 local Window = Compkiller.new({
-	Name = "COMPKILLER",
+	Name = "ANGGAZYY",
 	Keybind = MenuKey,
 	Logo = "rbxassetid://120245531583106",
+    Scale = Compkiller.Scale.Mobile, -- Leave blank if you want automatic scale [PC, Mobile].
 	TextSize = 15,
 });
 
