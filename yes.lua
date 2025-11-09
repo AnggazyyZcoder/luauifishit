@@ -28,8 +28,8 @@ local Window = Compkiller.new({
 	Name = "ANGGAZYY",
 	Keybind = MenuKey,
 	Logo = "rbxassetid://120245531583106",
-    Scale = Compkiller.Scale.Mobile, -- Leave blank if you want automatic scale [PC, Mobile].
-	TextSize = 15,
+    Scale = nil, -- Leave blank if you want automatic scale [PC, Mobile].
+	TextSize = 10,
 });
 
 -- User Setting --
