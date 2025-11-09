@@ -1,6 +1,3 @@
-
-
-
 -- CONFIG: ubah sesuai kebutuhan
 local AUTO_FISH_REMOTE_NAME = "UpdateAutoFishingState"
 local NET_PACKAGES_FOLDER = "Packages"
@@ -55,8 +52,8 @@ local Trove_upvr = nil
 local Constants_upvr = nil
 
 -- Blatant Fishing Configuration
-local blatantReelDelay = 0.5  -- Default delay reel
-local blatantFishingDelay = 0.0015  -- Default delay fishing (1.5ms untuk Fast Reel Loop)
+local blatantReelDelay = 0.1  -- Default delay reel
+local blatantFishingDelay = 0.001  -- Default delay fishing
 
 -- UI Configuration
 local COLOR_ENABLED = Color3.fromRGB(76, 175, 80)  -- Green
@@ -101,7 +98,7 @@ local function Notify(opts)
 end
 
 -- =============================================================================
--- BLATANT FISHING SYSTEM - COMPLETELY FIXED VERSION
+-- BLATANT FISHING SYSTEM - SAFE FIXED VERSION
 -- =============================================================================
 
 local function InitializeBlatantFishing()
@@ -111,7 +108,7 @@ local function InitializeBlatantFishing()
         Trove_upvr = require(ReplicatedStorage.Packages.Trove)
         Constants_upvr = require(ReplicatedStorage.Shared.Constants)
         
-        -- Get fishing module - More comprehensive search
+        -- Get fishing module - Safe search
         for _, module in pairs(ReplicatedStorage:GetDescendants()) do
             if module:IsA("ModuleScript") then
                 local modSuccess, modResult = pcall(function()
@@ -139,7 +136,7 @@ local function InitializeBlatantFishing()
                 local controller = ReplicatedStorage.Controllers:FindFirstChild(name)
                 if controller then
                     local modSuccess, modResult = pcall(require, controller)
-                    if modSuccess and modResult.RequestChargeFishingRod then
+                    if modSuccess and modResult and modResult.RequestChargeFishingRod then
                         module_upvr = modResult
                         print("✅ Found fishing controller:", name)
                         break
@@ -155,9 +152,10 @@ local function InitializeBlatantFishing()
         -- Get remote events
         FISHING_COMPLETED_REMOTE = Net_upvr:RemoteEvent("FishingCompleted")
         
-        -- Save original functions
-        originalFishingRodStarted = module_upvr.FishingRodStarted
-        originalRequestChargeFishingRod = module_upvr.RequestChargeFishingRod
+        -- Save original functions SAFELY
+        if module_upvr.FishingRodStarted then
+            originalFishingRodStarted = module_upvr.FishingRodStarted
+        end
         
         -- Initialize trove
         BLATANT_MODE_TROVE = Trove_upvr.new()
@@ -178,19 +176,19 @@ end
 local function AutoFishComplete(rodData, minigameData)
     if not isBlatantActive then return end
     
-    -- **FIX**: Skip reel delay jika di-set ke 0
+    -- Skip reel delay jika di-set ke 0
     if blatantReelDelay > 0 then
         task.wait(blatantReelDelay)
     end
     
-    -- **FIX**: Langsung fire fishing completed tanpa delay tambahan
+    -- Langsung fire fishing completed tanpa delay tambahan
     pcall(function()
         FISHING_COMPLETED_REMOTE:FireServer()
         print("⚡ Blatant Mode: Minigame Bypassed - Fish Retrieved")
     end)
 end
 
--- **FIXED**: Hook function yang lebih agresif
+-- **FIXED**: Hook function yang lebih aman
 local function HookFishingRodStarted(rodData, minigameData)
     if isBlatantActive then
         print("🎣 Blatant Mode: Intercepting FishingRodStarted")
@@ -199,47 +197,23 @@ local function HookFishingRodStarted(rodData, minigameData)
             AutoFishComplete(rodData, minigameData)
         end)
     else
-        -- Fallback ke original function
+        -- Fallback ke original function jika ada
         if originalFishingRodStarted then
             originalFishingRodStarted(rodData, minigameData)
         end
     end
 end
 
--- **FIXED**: Charge bypass function
-local function HookRequestChargeFishingRod(arg1, arg2, arg3)
-    if isBlatantActive then
-        print("⚡ Blatant Mode: Bypassing charge system")
-        
-        -- **FIX**: Skip semua animasi charge dan langsung lempar
-        local success, result = pcall(function()
-            -- Panggil original function dengan bypass parameter
-            if originalRequestChargeFishingRod then
-                return originalRequestChargeFishingRod(arg1, arg2, true) -- Force bypass
-            end
-            return false
-        end)
-        
-        return success
-    else
-        -- Normal mode
-        if originalRequestChargeFishingRod then
-            return originalRequestChargeFishingRod(arg1, arg2, arg3)
-        end
-        return false
-    end
-end
-
--- **FIXED**: Blatant Fishing Loop yang lebih agresif
+-- **FIXED**: Blatant Fishing Loop yang lebih aman
 local function BlatantFishingLoop()
     while isBlatantActive do
         local castSuccess = false
         
-        -- **FIX**: Multiple attempt strategy
-        for attempt = 1, 3 do
+        -- Multiple attempt strategy
+        for attempt = 1, 2 do
             castSuccess = pcall(function()
                 if module_upvr and module_upvr.RequestChargeFishingRod then
-                    -- **FIX**: Gunakan parameter bypass yang lebih agresif
+                    -- Gunakan parameter bypass
                     module_upvr:RequestChargeFishingRod(nil, nil, true)
                     return true
                 end
@@ -251,8 +225,8 @@ local function BlatantFishingLoop()
                 break
             else
                 print("❌ Blatant Cast Attempt", attempt, "FAILED")
-                if attempt < 3 then
-                    task.wait(0.1) -- Small delay between retries
+                if attempt < 2 then
+                    task.wait(0.1)
                 end
             end
         end
@@ -261,17 +235,17 @@ local function BlatantFishingLoop()
             print("⚠️ All cast attempts failed, waiting before retry...")
             task.wait(1)
         else
-            -- **FIX**: Reduced delay untuk fast fishing
+            -- Reduced delay untuk fast fishing
             if blatantFishingDelay > 0 then
                 task.wait(blatantFishingDelay)
             else
-                task.wait(0.001) -- Minimum delay
+                task.wait(0.001)
             end
         end
     end
 end
 
--- **FIXED**: Enhanced toggle function dengan hook yang lebih baik
+-- **FIXED**: Enhanced toggle function dengan hook yang lebih aman
 local function ToggleBlatantMode(enable)
     if enable == isBlatantActive then return end
     
@@ -286,26 +260,17 @@ local function ToggleBlatantMode(enable)
         isBlatantActive = true
         print("✅ Blatant Mode: ENABLED - Fast Fishing Activated")
         
-        -- **FIX**: Apply hooks to both critical functions
+        -- Apply hooks safely
         if module_upvr then
-            if module_upvr.FishingRodStarted ~= HookFishingRodStarted then
+            if module_upvr.FishingRodStarted and module_upvr.FishingRodStarted ~= HookFishingRodStarted then
                 module_upvr.FishingRodStarted = HookFishingRodStarted
-            end
-            
-            if module_upvr.RequestChargeFishingRod ~= HookRequestChargeFishingRod then
-                module_upvr.RequestChargeFishingRod = HookRequestChargeFishingRod
             end
             
             -- Add cleanup to trove
             if BLATANT_MODE_TROVE then
                 BLATANT_MODE_TROVE:Add(function() 
-                    if module_upvr then
-                        if originalFishingRodStarted then
-                            module_upvr.FishingRodStarted = originalFishingRodStarted 
-                        end
-                        if originalRequestChargeFishingRod then
-                            module_upvr.RequestChargeFishingRod = originalRequestChargeFishingRod
-                        end
+                    if module_upvr and originalFishingRodStarted then
+                        module_upvr.FishingRodStarted = originalFishingRodStarted 
                     end
                 end)
             end
@@ -332,13 +297,8 @@ local function ToggleBlatantMode(enable)
         end
         
         -- Restore original functions
-        if module_upvr then
-            if originalFishingRodStarted then
-                module_upvr.FishingRodStarted = originalFishingRodStarted
-            end
-            if originalRequestChargeFishingRod then
-                module_upvr.RequestChargeFishingRod = originalRequestChargeFishingRod
-            end
+        if module_upvr and originalFishingRodStarted then
+            module_upvr.FishingRodStarted = originalFishingRodStarted
         end
         
         Notify({Title = "Blatant Fishing", Content = "Fast fishing mode deactivated", Duration = 3})
@@ -347,7 +307,7 @@ local function ToggleBlatantMode(enable)
     return true
 end
 
--- **FIXED**: Manual fishing dengan bypass yang lebih baik
+-- **FIXED**: Manual fishing yang lebih aman
 local function ManualBlatantFish()
     if not isBlatantActive then
         Notify({Title = "Blatant Fishing", Content = "Please enable Blatant Mode first", Duration = 3})
@@ -356,7 +316,6 @@ local function ManualBlatantFish()
     
     local success = pcall(function()
         if module_upvr and module_upvr.RequestChargeFishingRod then
-            -- **FIX**: Force bypass parameter
             module_upvr:RequestChargeFishingRod(nil, nil, true)
             Notify({Title = "⚡ Manual Cast", Content = "Instant cast with bypass", Duration = 2})
             return true
@@ -396,7 +355,7 @@ local function SetBlatantFishingDelay(delay)
     return false
 end
 
--- **NEW**: Emergency stop function
+-- Emergency stop function
 local function EmergencyStopBlatant()
     if isBlatantActive then
         ToggleBlatantMode(false)
@@ -404,7 +363,7 @@ local function EmergencyStopBlatant()
     end
 end
 
--- **NEW**: Status check function
+-- Status check function
 local function CheckBlatantStatus()
     local status = isBlatantActive and "ACTIVE 🟢" or "INACTIVE 🔴"
     local moduleStatus = module_upvr and "LOADED ✅" or "MISSING ❌"
@@ -1402,8 +1361,7 @@ AutoTab:Toggle({
 
 AutoTab:Space()
 
--- Blatant Fishing Section
--- Blatant Fishing Section - UPDATED
+-- Blatant Fishing Section - FIXED
 AutoTab:Section({
     Title = "⚡ ULTRA BLATANT FISHING",
     TextSize = 20,
@@ -1476,6 +1434,7 @@ AutoTab:Button({
     Color = Color3.fromHex("#ff4830"),
     Callback = EmergencyStopBlatant
 })
+
 AutoTab:Space()
 
 -- ========== WEATHER MACHINE TAB ==========
@@ -1940,10 +1899,10 @@ SettingsTab:Button({
 -- Initial Notification
 Notify({
     Title = "Anggazyy Hub Ready", 
-    Content = "WindUI System initialized successfully with UPDATED Blatant Fishing",
+    Content = "WindUI System initialized successfully with FIXED Blatant Fishing",
     Duration = 4
 })
 
 --//////////////////////////////////////////////////////////////////////////////////
 -- WindUI System Initialization Complete
---//////////////////////////////////////////////////////////////////////////////////=
+--//////////////////////////////////////////////////////////////////////////////////
