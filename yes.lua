@@ -197,33 +197,166 @@ local function HookFishingRodStarted(rodData, minigameData)
 end
 
 -- =============================================================================
--- PERBAIKAN UTAMA: BlatantFishingLoop yang sudah diperbaiki
+-- BLATANT FISHING SYSTEM - FIXED VERSION (SKIP CHARGER COMPLETELY)
+-- =============================================================================
+
+local function InitializeBlatantFishing()
+    local success, result = pcall(function()
+        -- Load required modules for Blatant Fishing
+        Net_upvr = require(ReplicatedStorage.Packages.Net)
+        Trove_upvr = require(ReplicatedStorage.Packages.Trove)
+        Constants_upvr = require(ReplicatedStorage.Shared.Constants)
+        
+        -- Get fishing module - Mencari modul fishing yang tepat
+        for _, module in pairs(ReplicatedStorage:GetDescendants()) do
+            if module:IsA("ModuleScript") and (string.find(module.Name:lower(), "fishing") or string.find(module.Name:lower(), "controller")) then
+                local modSuccess, modResult = pcall(function()
+                    return require(module)
+                end)
+                if modSuccess and type(modResult) == "table" then
+                    if modResult.RequestChargeFishingRod and modResult.FishingRodStarted then
+                        module_upvr = modResult
+                        break
+                    end
+                end
+            end
+        end
+        
+        -- Jika tidak ditemukan, coba cari di Controllers
+        if not module_upvr then
+            local FishingController = ReplicatedStorage.Controllers:FindFirstChild("FishingController")
+            if FishingController then
+                module_upvr = require(FishingController)
+            end
+        end
+        
+        -- Get remote event
+        FISHING_COMPLETED_REMOTE = Net_upvr:RemoteEvent("FishingCompleted")
+        
+        -- Save original functions
+        if module_upvr then
+            originalFishingRodStarted = module_upvr.FishingRodStarted
+            originalSendFishingRequestToServer = module_upvr.SendFishingRequestToServer
+            originalRequestChargeFishingRod = module_upvr.RequestChargeFishingRod
+        end
+        
+        -- Initialize trove
+        BLATANT_MODE_TROVE = Trove_upvr.new()
+        
+        return true
+    end)
+    
+    if success then
+        Notify({Title = "Blatant Fishing", Content = "System initialized successfully", Duration = 3})
+        return true
+    else
+        Notify({Title = "Blatant Fishing Error", Content = "Failed to initialize: " .. tostring(result), Duration = 4})
+        return false
+    end
+end
+
+-- Fungsi yang menjalankan logika penyelesaian minigame secara instan (Blatant)
+local function AutoFishComplete(rodData, minigameData)
+    -- Blantant Mode: Delay reel (0 - 1.87)
+    local reelDelay = blatantReelDelay
+    if reelDelay > 0 then
+        task.wait(reelDelay)
+    end
+    
+    -- Fishing Complete: Langsung tembak RemoteEvent "FishingCompleted" ke server.
+    pcall(function()
+        FISHING_COMPLETED_REMOTE:FireServer() 
+    end)
+    
+    print("⚡ Blatant Mode: Minigame Bypassed. Fish Retrieved.")
+
+    -- Delay Fishing Complete sebelum loop Fast Fishing kembali melempar
+    if blatantFishingDelay > 0 then
+        task.wait(blatantFishingDelay)
+    end
+end
+
+-- Fungsi HOOK untuk menimpa 'FishingRodStarted'
+local function HookFishingRodStarted(rodData, minigameData)
+    if isBlatantActive then
+        -- Jika mode Blatant aktif, langsung selesaikan di thread terpisah
+        task.spawn(function()
+            AutoFishComplete(rodData, minigameData)
+        end)
+    else
+        -- Jika tidak aktif, jalankan fungsi asli
+        if originalFishingRodStarted then
+            originalFishingRodStarted(rodData, minigameData)
+        end
+    end
+end
+
+-- Fungsi Blatant yang langsung melempar tanpa charging
+local function BlatantCastFishingRod()
+    if not module_upvr or not module_upvr.SendFishingRequestToServer then
+        return false
+    end
+    
+    local success, result = pcall(function()
+        -- Skip semua proses charging dan langsung lempar dengan kekuatan default
+        local castPower = 0.5  -- Kekuatan lemparan default (50%)
+        
+        -- Panggil SendFishingRequestToServer langsung dengan parameter yang diperlukan
+        local sendSuccess, sendResult = module_upvr:SendFishingRequestToServer(Vector2.new(0, 0), castPower, true)
+        
+        if sendSuccess then
+            print("✅ Blatant Cast: Fishing rod cast successfully!")
+            return true
+        else
+            print("❌ Blatant Cast Failed:", tostring(sendResult))
+            return false
+        end
+    end)
+    
+    return success and result
+end
+
+-- =============================================================================
+-- PERBAIKAN UTAMA: BlatantFishingLoop yang langsung melempar tanpa charger
 -- =============================================================================
 
 local function BlatantFishingLoop()
     while isBlatantActive do
         local castSuccess = pcall(function()
-            if module_upvr and module_upvr.RequestChargeFishingRod then
-                -- **PERBAIKAN UTAMA**: Set confirmFishingInput untuk bypass konfirmasi user
-                _G.confirmFishingInput = function() return true end
-                
-                -- **INI KUNCI AUTO-CAST Cepat**: Parameter 'true' (arg3)
-                module_upvr:RequestChargeFishingRod(nil, nil, true)
-                
-                -- Reset setelah selesai
-                _G.confirmFishingInput = nil
-                return true
-            end
-            return false
+            -- **PERBAIKAN UTAMA**: Langsung panggil BlatantCastFishingRod tanpa melalui RequestChargeFishingRod
+            return BlatantCastFishingRod()
         end)
         
         if not castSuccess then
-            print("❌ Failed to cast fishing rod or Rod not fully equipped yet. Retrying...")
-            task.wait(0.5) -- Delay lebih pendek untuk retry
+            print("❌ Failed to cast fishing rod. Retrying...")
+            task.wait(0.1) -- Delay sangat pendek untuk retry
         end
 
         -- **PERBAIKAN DELAY**: Mengurangi delay loop agar segera melempar lagi
         task.wait(blatantFishingDelay)
+    end
+end
+
+-- Hook untuk SendFishingRequestToServer untuk memastikan parameter benar
+local function HookSendFishingRequestToServer(mousePosition, power, skipCharge)
+    if isBlatantActive then
+        -- Force skip charge dan gunakan power default untuk Blatant Mode
+        return originalSendFishingRequestToServer(mousePosition, 0.5, true)
+    else
+        -- Normal behavior
+        return originalSendFishingRequestToServer(mousePosition, power, skipCharge)
+    end
+end
+
+-- Hook untuk RequestChargeFishingRod untuk skip charging di Blatant Mode
+local function HookRequestChargeFishingRod(arg1, arg2, arg3)
+    if isBlatantActive then
+        -- Di Blatant Mode, langsung lempar tanpa charging
+        print("⚡ Blatant Mode: Skipping charge rod process...")
+        return BlatantCastFishingRod()
+    else
+        -- Normal behavior
+        return originalRequestChargeFishingRod(arg1, arg2, arg3)
     end
 end
 
@@ -270,14 +403,36 @@ local function ToggleBlatantMode(enable)
         isBlatantActive = true
         print("✅ Blantant Mode (Fast Fishing): ENABLED.")
         
-        -- Terapkan Hook pada FishingRodStarted (jika belum)
-        if module_upvr and module_upvr.FishingRodStarted ~= HookFishingRodStarted then
-            module_upvr.FishingRodStarted = HookFishingRodStarted
+        -- Terapkan Hook pada fungsi-fungsi fishing
+        if module_upvr then
+            -- Hook FishingRodStarted
+            if module_upvr.FishingRodStarted ~= HookFishingRodStarted then
+                module_upvr.FishingRodStarted = HookFishingRodStarted
+            end
+            
+            -- Hook SendFishingRequestToServer  
+            if module_upvr.SendFishingRequestToServer and module_upvr.SendFishingRequestToServer ~= HookSendFishingRequestToServer then
+                module_upvr.SendFishingRequestToServer = HookSendFishingRequestToServer
+            end
+            
+            -- Hook RequestChargeFishingRod
+            if module_upvr.RequestChargeFishingRod and module_upvr.RequestChargeFishingRod ~= HookRequestChargeFishingRod then
+                module_upvr.RequestChargeFishingRod = HookRequestChargeFishingRod
+            end
+            
             -- Tambahkan fungsi pembersihan ke Trove
             if BLATANT_MODE_TROVE then
                 BLATANT_MODE_TROVE:Add(function() 
-                    if module_upvr and originalFishingRodStarted then
-                        module_upvr.FishingRodStarted = originalFishingRodStarted 
+                    if module_upvr then
+                        if originalFishingRodStarted then
+                            module_upvr.FishingRodStarted = originalFishingRodStarted 
+                        end
+                        if originalSendFishingRequestToServer then
+                            module_upvr.SendFishingRequestToServer = originalSendFishingRequestToServer
+                        end
+                        if originalRequestChargeFishingRod then
+                            module_upvr.RequestChargeFishingRod = originalRequestChargeFishingRod
+                        end
                     end
                 end)
             end
@@ -288,7 +443,7 @@ local function ToggleBlatantMode(enable)
             BLATANT_MODE_TROVE:Add(task.spawn(BlatantFishingLoop))
         end
         
-        Notify({Title = "⚡ Blatant Fishing", Content = "Fast fishing mode activated - Auto casting and bypassing minigame", Duration = 3})
+        Notify({Title = "⚡ Blatant Fishing", Content = "Fast fishing mode activated - Instant casting and bypassing minigame", Duration = 3})
         
     else
         isBlatantActive = false
@@ -299,9 +454,17 @@ local function ToggleBlatantMode(enable)
             BLATANT_MODE_TROVE:Clean()
         end
         
-        -- Restore original function
-        if module_upvr and originalFishingRodStarted then
-            module_upvr.FishingRodStarted = originalFishingRodStarted
+        -- Restore original functions
+        if module_upvr then
+            if originalFishingRodStarted then
+                module_upvr.FishingRodStarted = originalFishingRodStarted
+            end
+            if originalSendFishingRequestToServer then
+                module_upvr.SendFishingRequestToServer = originalSendFishingRequestToServer
+            end
+            if originalRequestChargeFishingRod then
+                module_upvr.RequestChargeFishingRod = originalRequestChargeFishingRod
+            end
         end
         
         Notify({Title = "Blatant Fishing", Content = "Fast fishing mode deactivated", Duration = 3})
@@ -318,13 +481,8 @@ local function ManualBlatantFish()
     end
     
     pcall(function()
-        if module_upvr and module_upvr.RequestChargeFishingRod then
-            -- Set confirmFishingInput untuk bypass konfirmasi
-            _G.confirmFishingInput = function() return true end
-            module_upvr:RequestChargeFishingRod(nil, nil, true)
-            _G.confirmFishingInput = nil
-            Notify({Title = "⚡ Manual Cast", Content = "Casting fishing rod...", Duration = 2})
-        end
+        BlatantCastFishingRod()
+        Notify({Title = "⚡ Manual Cast", Content = "Casting fishing rod instantly...", Duration = 2})
     end)
 end
 
