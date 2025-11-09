@@ -28,7 +28,6 @@ local Window = Compkiller.new({
 	Name = "COMPKILLER",
 	Keybind = MenuKey,
 	Logo = "rbxassetid://120245531583106",
-	Scale = Compkiller.Scale.Window, -- Leave blank if you want automatic scale [PC, Mobile].
 	TextSize = 15,
 });
 
