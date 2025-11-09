@@ -104,6 +104,101 @@ local COLOR_SECONDARY = Color3.fromRGB(30, 30, 46)  -- Dark
 -- Load WindUI
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/refs/heads/main/dist/main.lua"))()
 
+-- =============================================================================
+-- WELCOME POPUP - Tampilkan saat pertama kali execute script
+-- =============================================================================
+task.spawn(function()
+    task.wait(1) -- Tunggu sebentar agar UI siap
+    WindUI:Popup({
+        Title = "Welcome to Anggazyy Hub!",
+        Icon = "fish",
+        Content = "Thank you for using Anggazyy Hub - Fish It Automation\n\nScript ini 100% Gratis dan tidak diperjualbelikan",
+        Buttons = {
+            {
+                Title = "Get Started",
+                Icon = "check",
+                Callback = function()
+                    print("Anggazyy Hub activated!")
+                end
+            }
+        }
+    })
+end)
+
+-- =============================================================================
+-- ANTI AFK SYSTEM - Taruh di bagian Player Config
+-- =============================================================================
+local antiAFKEnabled = false
+
+-- 🛡️ Anti Kick + Auto Reconnect Full System
+function AntiKickReconnect()
+    -- Pastikan hanya aktif sekali
+    if getgenv().AntiKick_Started then return end
+    getgenv().AntiKick_Started = true
+
+    -- 🔹 Cegah AFK Kick
+    LocalPlayer.Idled:Connect(function()
+        task.wait(1)
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+        print("[SYSTEM] Anti-AFK aktif, mengirim aktivitas virtual ✅")
+    end)
+
+    -- 🔹 Cegah manual kick dari LocalScripts
+    local mt = getrawmetatable(game)
+    local oldNamecall = mt.__namecall
+    setreadonly(mt, false)
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if method == "Kick" or method == "kick" then
+            warn("[SYSTEM] Kick terdeteksi dan diblokir ❌")
+            return nil
+        end
+        return oldNamecall(self, ...)
+    end)
+    setreadonly(mt, true)
+
+    -- 🔹 Auto reconnect bawaan module game (kalau ada)
+    local success, Net = pcall(function()
+        return require(ReplicatedStorage.Packages.Net)
+    end)
+    if success and Net then
+        local reconnectEvent = Net:RemoteEvent("ReconnectPlayer")
+        task.spawn(function()
+            while task.wait(10) do
+                if not LocalPlayer:IsDescendantOf(Players) then
+                    warn("[SYSTEM] Pemain terputus, mencoba reconnect 🔄")
+                    reconnectEvent:FireServer()
+                end
+            end
+        end)
+    else
+        warn("[SYSTEM] Module Net tidak ditemukan, auto reconnect dinonaktifkan ⚠️")
+    end
+
+    print("[SYSTEM] Anti Kick + Auto Reconnect aktif sepenuhnya 🚀")
+end
+
+local function ToggleAntiAFK(state)
+    if state then
+        antiAFKEnabled = true
+        AntiKickReconnect()
+        Notify({
+            Title = "Anti AFK System", 
+            Content = "Anti Kick + Auto Reconnect activated",
+            Duration = 3
+        })
+    else
+        antiAFKEnabled = false
+        -- Note: Beberapa hook tidak bisa di-disable sepenuhnya untuk keamanan
+        Notify({
+            Title = "Anti AFK System", 
+            Content = "Basic protection remains active for safety",
+            Duration = 3
+        })
+    end
+end
+
 -- Auto-clean money icons
 task.spawn(function()
     while task.wait(1) do
@@ -1466,7 +1561,9 @@ Fitur Utama:
 • Player Configuration - Optimasi performa dan kontrol karakter
 • Mobile-Friendly UI - Antarmuka yang responsif untuk semua device
 
-Dibangun dengan teknologi terbaru untuk memberikan pengalaman gaming yang optimal dan efisien.]],
+Dibangun dengan teknologi terbaru untuk memberikan pengalaman gaming yang optimal dan efisien.
+
+Script ini 100% Gratis dan tidak diperjualbelikan.]],
     TextSize = 16,
     TextTransparency = 0.35,
     FontWeight = Enum.FontWeight.Medium,
@@ -1824,6 +1921,25 @@ PlayerConfigTab:Toggle({
 
 PlayerConfigTab:Space()
 
+-- Anti AFK Section - DITAMBAHKAN DI PLAYER CONFIG
+PlayerConfigTab:Section({
+    Title = "Anti AFK System",
+    TextSize = 20,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+PlayerConfigTab:Toggle({
+    Title = "Anti AFK + Auto Reconnect",
+    Desc = "Prevent AFK kick and auto reconnect if disconnected",
+    Flag = "AntiAFKToggle",
+    Default = false,
+    Callback = function(state)
+        ToggleAntiAFK(state)
+    end
+})
+
+PlayerConfigTab:Space()
+
 -- Position Section
 PlayerConfigTab:Section({
     Title = "Position Management",
@@ -1859,82 +1975,14 @@ PlayerConfigTab:Toggle({
 
 PlayerConfigTab:Space()
 
--- Quick Actions
+-- Movement Configuration - DIPINDAHKAN DARI PLAYER STATS
 PlayerConfigTab:Section({
-    Title = "Quick Actions",
+    Title = "Movement Configuration",
     TextSize = 20,
     FontWeight = Enum.FontWeight.SemiBold,
 })
 
-PlayerConfigTab:Button({
-    Title = "Max Performance",
-    Icon = "zap",
-    Color = Color3.fromHex("#30a2ff"),
-    Justify = "Center",
-    Callback = function()
-        EnableAntiLag()
-        Notify({Title = "Performance", Content = "Maximum performance enabled", Duration = 2})
-    end
-})
-
--- ========== TELEPORTATION TAB ==========
-local TeleportTab = Window:Tab({
-    Title = "Teleportation",
-    Icon = "map-pin",
-})
-
-TeleportTab:Section({
-    Title = "Location Teleport",
-    Desc = "Quick teleport to fishing spots",
-})
-
-TeleportTab:Dropdown({
-    Title = "Select Destination",
-    Flag = "MapSelect",
-    Values = {"Mount Hallow"},
-    Value = "Mount Hallow",
-    Callback = function(selected)
-        currentSelectedMap = selected
-    end
-})
-
-TeleportTab:Button({
-    Title = "Teleport Now",
-    Icon = "navigation",
-    Callback = function()
-        local pos = Vector3.new(1819, 12, 3043)
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(pos)
-            Notify({Title = "Teleport", Content = "Teleported to Mount Hallow", Duration = 2})
-        end
-    end
-})
-
-TeleportTab:Toggle({
-    Title = "Show Coordinates",
-    Desc = "Display current position coordinates",
-    Flag = "ShowCoords",
-    Default = false,
-    Callback = function(v)
-        if v then
-            CreateCoordinateDisplay()
-        else
-            DestroyCoordinateDisplay()
-        end
-    end
-})
-
--- ========== PLAYER MANAGEMENT TAB ==========
-local PlayerTab = Window:Tab({
-    Title = "Player Stats",
-    Icon = "user",
-})
-
-PlayerTab:Section({
-    Title = "Movement Configuration",
-})
-
-PlayerTab:Slider({
+PlayerConfigTab:Slider({
     Title = "Walk Speed",
     Desc = "Adjust player movement speed",
     Flag = "WalkSpeed",
@@ -1951,7 +1999,7 @@ PlayerTab:Slider({
     end
 })
 
-PlayerTab:Slider({
+PlayerConfigTab:Slider({
     Title = "Jump Power",
     Desc = "Adjust player jump height",
     Flag = "JumpPower",
@@ -1968,7 +2016,7 @@ PlayerTab:Slider({
     end
 })
 
-PlayerTab:Button({
+PlayerConfigTab:Button({
     Title = "Reset Movement",
     Icon = "refresh-cw",
     Callback = function()
@@ -1976,6 +2024,128 @@ PlayerTab:Button({
             LocalPlayer.Character.Humanoid.WalkSpeed = 16
             LocalPlayer.Character.Humanoid.JumpPower = 50
             Notify({Title = "Reset", Content = "Movement reset to default", Duration = 2})
+        end
+    end
+})
+
+PlayerConfigTab:Space()
+
+-- Quick Actions
+PlayerConfigTab:Section({
+    Title = "Quick Actions",
+    TextSize = 20,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+PlayerConfigTab:Button({
+    Title = "Max Performance",
+    Icon = "zap",
+    Color = Color3.fromHex("#30a2ff"),
+    Justify = "Center",
+    Callback = function()
+        EnableAntiLag()
+        ToggleAntiAFK(true)
+        Notify({Title = "Performance", Content = "Maximum performance enabled", Duration = 2})
+    end
+})
+
+-- ========== TELEPORTATION TAB ==========
+local TeleportTab = Window:Tab({
+    Title = "Teleportation",
+    Icon = "map-pin",
+})
+
+TeleportTab:Section({
+    Title = "Location Teleport",
+    Desc = "Quick teleport to fishing spots",
+})
+
+-- DROPDOWN UNTUK MAP TELEPORT - DITAMBAHKAN LOKASI BARU
+TeleportTab:Dropdown({
+    Title = "Select Destination",
+    Flag = "MapSelect",
+    Values = {
+        "Kohana",
+        "Kohana Volcano", 
+        "Lost Isle",
+        "Coral Fish",
+        "Tropical Grove",
+        "Crater Island",
+        "Esoteric Depth",
+        "Ancient Jungle",
+        "Sacred Temple",
+        "Undground Cellar",
+        "Fishermand Iland"
+    },
+    Value = "Kohana",
+    Callback = function(selected)
+        currentSelectedMap = selected
+    end
+})
+
+-- BUTTON TELEPORT - DITAMBAHKAN FUNGSI TELEPORT KE LOKASI BARU
+TeleportTab:Button({
+    Title = "Teleport Now",
+    Icon = "navigation",
+    Callback = function()
+        local targetPosition
+        
+        -- Tentukan posisi berdasarkan pilihan
+        if currentSelectedMap == "Kohana" then
+            targetPosition = Vector3.new(-637, 16, 626)
+        elseif currentSelectedMap == "Kohana Volcano" then
+            targetPosition = Vector3.new(-607, 48, 167)
+        elseif currentSelectedMap == "Lost Isle" then
+            targetPosition = Vector3.new(-3706, -136, -1014)
+        elseif currentSelectedMap == "Coral Fish" then
+            targetPosition = Vector3.new(-2923, 3, 2080)
+        elseif currentSelectedMap == "Tropical Grove" then
+            targetPosition = Vector3.new(-2053, 6, 3665)
+        elseif currentSelectedMap == "Crater Island" then
+            targetPosition = Vector3.new(997, 2, 5010)
+        elseif currentSelectedMap == "Esoteric Depth" then
+            targetPosition = Vector3.new(3252, -1301, 1392)
+        elseif currentSelectedMap == "Ancient Jungle" then
+            targetPosition = Vector3.new(1329, 7, -248)
+        elseif currentSelectedMap == "Sacred Temple" then
+            targetPosition = Vector3.new(1485, 7, -550)
+        elseif currentSelectedMap == "Undground Cellar" then
+            targetPosition = Vector3.new(2021, -92, -570)
+        elseif currentSelectedMap == "Fishermand Iland" then
+            targetPosition = Vector3.new(-26, 9, 2688)
+        else
+            -- Default position jika tidak ada yang cocok
+            targetPosition = Vector3.new(-637, 16, 626)
+        end
+        
+        -- Eksekusi teleport
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(targetPosition)
+            Notify({
+                Title = "Teleport Success", 
+                Content = string.format("Teleported to %s", currentSelectedMap),
+                Duration = 3
+            })
+        else
+            Notify({
+                Title = "Teleport Failed",
+                Content = "Character not found",
+                Duration = 3
+            })
+        end
+    end
+})
+
+TeleportTab:Toggle({
+    Title = "Show Coordinates",
+    Desc = "Display current position coordinates",
+    Flag = "ShowCoords",
+    Default = false,
+    Callback = function(v)
+        if v then
+            CreateCoordinateDisplay()
+        else
+            DestroyCoordinateDisplay()
         end
     end
 })
