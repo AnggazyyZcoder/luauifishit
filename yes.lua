@@ -1,5 +1,5 @@
 --//////////////////////////////////////////////////////////////////////////////////
--- Anggazyy Hub - Fish It (FINAL) + Weather Machine + Trick or Treat
+-- Anggazyy Hub - Fish It (FINAL) + Weather Machine + Trick or Treat + Blatant Fishing
 -- WindUI Version - Modern, Mobile-Friendly Design
 -- Author: Anggazyy (refactor)
 --//////////////////////////////////////////////////////////////////////////////////
@@ -47,6 +47,20 @@ local availableWeathers = {}
 local autoTrickTreatEnabled = false
 local trickTreatLoop = nil
 
+-- Blatant Fishing Variables
+local isBlatantActive = false
+local BLATANT_MODE_TROVE = nil
+local originalFishingRodStarted = nil
+local FISHING_COMPLETED_REMOTE = nil
+local module_upvr = nil
+local Net_upvr = nil
+local Trove_upvr = nil
+local Constants_upvr = nil
+
+-- Blatant Fishing Configuration
+local blatantReelDelay = 0.5  -- Default delay reel
+local blatantFishingDelay = 0.87  -- Default delay fishing
+
 -- UI Configuration
 local COLOR_ENABLED = Color3.fromRGB(76, 175, 80)  -- Green
 local COLOR_DISABLED = Color3.fromRGB(244, 67, 54) -- Red
@@ -87,6 +101,195 @@ local function Notify(opts)
             Icon = opts.Icon or "info"
         })
     end)
+end
+
+-- =============================================================================
+-- BLATANT FISHING SYSTEM
+-- =============================================================================
+
+local function InitializeBlatantFishing()
+    local success, result = pcall(function()
+        -- Load required modules for Blatant Fishing
+        Net_upvr = require(ReplicatedStorage.Packages.Net)
+        Trove_upvr = require(ReplicatedStorage.Packages.Trove)
+        Constants_upvr = require(ReplicatedStorage.Shared.Constants)
+        
+        -- Get fishing module
+        for _, module in pairs(ReplicatedStorage:GetDescendants()) do
+            if module:IsA("ModuleScript") and string.find(module.Name:lower(), "fishing") then
+                module_upvr = require(module)
+                break
+            end
+        end
+        
+        if not module_upvr then
+            module_upvr = require(ReplicatedStorage.Controllers.FishingController)
+        end
+        
+        -- Get remote event
+        FISHING_COMPLETED_REMOTE = Net_upvr:RemoteEvent("FishingCompleted")
+        
+        -- Save original function
+        originalFishingRodStarted = module_upvr.FishingRodStarted
+        
+        -- Initialize trove
+        BLATANT_MODE_TROVE = Trove_upvr.new()
+        
+        return true
+    end)
+    
+    if success then
+        Notify({Title = "Blatant Fishing", Content = "System initialized successfully", Duration = 3})
+        return true
+    else
+        Notify({Title = "Blatant Fishing Error", Content = "Failed to initialize: " .. tostring(result), Duration = 4})
+        return false
+    end
+end
+
+-- Fungsi yang menjalankan logika penyelesaian minigame secara instan (Blatant)
+local function AutoFishComplete(rodData, minigameData)
+    -- Blantant Mode: Delay reel (0 - 1.87)
+    local reelDelay = blatantReelDelay
+    if reelDelay > 0 then
+        task.wait(reelDelay)
+    end
+    
+    -- Fishing Complete: Langsung tembak RemoteEvent "FishingCompleted" ke server.
+    pcall(function()
+        FISHING_COMPLETED_REMOTE:FireServer() 
+    end)
+    
+    print("Blatant Mode: Minigame Bypassed. Fish Retrieved.")
+
+    -- Delay Fishing Complete sebelum loop Fast Fishing kembali melempar
+    if blatantFishingDelay > 0 then
+        task.wait(blatantFishingDelay)
+    end
+end
+
+-- Fungsi HOOK untuk menimpa 'FishingRodStarted'
+local function HookFishingRodStarted(rodData, minigameData)
+    if isBlatantActive then
+        -- Jika mode Blatant aktif, langsung selesaikan di thread terpisah
+        task.spawn(function()
+            AutoFishComplete(rodData, minigameData)
+        end)
+    else
+        -- Jika tidak aktif, jalankan fungsi asli
+        if originalFishingRodStarted then
+            originalFishingRodStarted(rodData, minigameData)
+        end
+    end
+end
+
+-- Fungsi loop utama untuk Fast Fishing: Melempar kail berulang kali
+local function BlatantFishingLoop()
+    while isBlatantActive do
+        -- Periksa Cooldown
+        if module_upvr and module_upvr.OnCooldown and module_upvr:OnCooldown() then
+            -- Tunggu sampai cooldown selesai
+            if Constants_upvr and Constants_upvr.FishingCooldownTime then
+                task.wait(Constants_upvr.FishingCooldownTime + 0.1)
+            else
+                task.wait(3)
+            end
+            continue
+        end
+
+        -- Melempar Kail (Casting)
+        pcall(function()
+            if module_upvr and module_upvr.RequestChargeFishingRod then
+                module_upvr.RequestChargeFishingRod(nil, nil, true)
+            end
+        end)
+        
+        -- Tunggu proses lempar dan tangkap selesai sebelum lemparan berikutnya.
+        task.wait(3.5)
+    end
+end
+
+-- Fungsi untuk mengatur delay reel
+local function SetBlatantReelDelay(delay)
+    if type(delay) == "number" and delay >= 0 and delay <= 1.87 then
+        blatantReelDelay = delay
+        Notify({
+            Title = "Blatant Fishing", 
+            Content = string.format("Reel delay set to %.2f seconds", delay),
+            Duration = 3
+        })
+        return true
+    end
+    return false
+end
+
+-- Fungsi untuk mengatur delay fishing
+local function SetBlatantFishingDelay(delay)
+    if type(delay) == "number" and delay >= 0 and delay <= 5 then
+        blatantFishingDelay = delay
+        Notify({
+            Title = "Blatant Fishing", 
+            Content = string.format("Fishing delay set to %.2f seconds", delay),
+            Duration = 3
+        })
+        return true
+    end
+    return false
+end
+
+-- Fungsi publik untuk mengaktifkan/menonaktifkan Blatant Mode
+local function ToggleBlatantMode(enable)
+    if enable == isBlatantActive then return end
+    
+    if enable then
+        -- Initialize system if not already initialized
+        if not module_upvr or not FISHING_COMPLETED_REMOTE then
+            if not InitializeBlatantFishing() then
+                return false
+            end
+        end
+        
+        isBlatantActive = true
+        print("✅ Blantant Mode (Fast Fishing): ENABLED.")
+        
+        -- Terapkan Hook pada FishingRodStarted (jika belum)
+        if module_upvr and module_upvr.FishingRodStarted ~= HookFishingRodStarted then
+            module_upvr.FishingRodStarted = HookFishingRodStarted
+            -- Tambahkan fungsi pembersihan ke Trove
+            if BLATANT_MODE_TROVE then
+                BLATANT_MODE_TROVE:Add(function() 
+                    if module_upvr and originalFishingRodStarted then
+                        module_upvr.FishingRodStarted = originalFishingRodStarted 
+                    end
+                end)
+            end
+        end
+        
+        -- Jalankan loop Fast Fishing
+        if BLATANT_MODE_TROVE then
+            BLATANT_MODE_TROVE:Add(task.spawn(BlatantFishingLoop))
+        end
+        
+        Notify({Title = "Blatant Fishing", Content = "Fast fishing mode activated", Duration = 3})
+        
+    else
+        isBlatantActive = false
+        print("❌ Blantant Mode (Fast Fishing): DISABLED. Cleaning up...")
+        
+        -- Cleanup
+        if BLATANT_MODE_TROVE then
+            BLATANT_MODE_TROVE:Clean()
+        end
+        
+        -- Restore original function
+        if module_upvr and originalFishingRodStarted then
+            module_upvr.FishingRodStarted = originalFishingRodStarted
+        end
+        
+        Notify({Title = "Blatant Fishing", Content = "Fast fishing mode deactivated", Duration = 3})
+    end
+    
+    return true
 end
 
 -- Network Communication
@@ -1072,6 +1275,63 @@ AutoTab:Toggle({
     end
 })
 
+AutoTab:Space()
+
+-- Blatant Fishing Section
+AutoTab:Section({
+    Title = "⚡ Blatant Fishing",
+    TextSize = 20,
+    FontWeight = Enum.FontWeight.SemiBold,
+})
+
+AutoTab:Toggle({
+    Title = "Blatant Mode",
+    Desc = "Fast fishing with minigame bypass",
+    Flag = "BlatantModeToggle",
+    Default = false,
+    Callback = function(state)
+        ToggleBlatantMode(state)
+    end
+})
+
+AutoTab:Slider({
+    Title = "Delay Reel",
+    Desc = "Delay before reeling fish (0 - 1.87)",
+    Flag = "BlatantReelDelay",
+    Step = 0.01,
+    Value = {
+        Min = 0,
+        Max = 1.87,
+        Default = 0.5,
+    },
+    Callback = function(value)
+        SetBlatantReelDelay(value)
+    end
+})
+
+AutoTab:Slider({
+    Title = "Delay Fishing",
+    Desc = "Delay between fishing attempts",
+    Flag = "BlatantFishingDelay",
+    Step = 0.01,
+    Value = {
+        Min = 0,
+        Max = 5,
+        Default = 0.87,
+    },
+    Callback = function(value)
+        SetBlatantFishingDelay(value)
+    end
+})
+
+AutoTab:Button({
+    Title = "Initialize Blatant System",
+    Icon = "zap",
+    Callback = function()
+        InitializeBlatantFishing()
+    end
+})
+
 -- ========== WEATHER MACHINE TAB ==========
 local WeatherTab = Window:Tab({
     Title = "Weather Machine",
@@ -1504,6 +1764,7 @@ SettingsTab:Button({
         StopDivingGear()
         StopAutoSell()
         StopAutoTrickTreat()
+        ToggleBlatantMode(false)
         DestroyCoordinateDisplay()
         Window:Destroy()
         Notify({Title = "Unload", Content = "Hub unloaded successfully", Duration = 2})
@@ -1533,7 +1794,7 @@ SettingsTab:Button({
 -- Initial Notification
 Notify({
     Title = "Anggazyy Hub Ready", 
-    Content = "WindUI System initialized successfully",
+    Content = "WindUI System initialized successfully with Blatant Fishing",
     Duration = 4
 })
 
